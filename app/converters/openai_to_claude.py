@@ -7,17 +7,32 @@ import time
 import uuid
 from typing import Any
 
+from openai.types.chat import (
+    ChatCompletion,
+    ChatCompletionChunk,
+    ChatCompletionMessage,
+)
+from openai.types.chat.chat_completion import Choice
+from openai.types.chat.chat_completion_chunk import (
+    Choice as ChunkChoice,
+    ChoiceDelta,
+    ChoiceDeltaToolCall,
+    ChoiceDeltaToolCallFunction,
+)
+from openai.types import CompletionUsage
+from anthropic.types import Message, RawMessageStreamEvent
+
 from app.core.config import get_settings, map_model
 from app.core.converter import BaseConverter
 
 
-class OpenAIToClaudeConverter(BaseConverter):
-    """实现 BaseConverter 接口：OpenAI 格式 → Claude 格式。"""
+class OpenAIToClaudeConverter(BaseConverter[dict, Message, RawMessageStreamEvent]):
+    """OpenAI 格式请求 → Claude 格式请求，Claude 响应 → OpenAI 响应。"""
 
     # ── 请求转换 ───────────────────────────────────────────────
 
     def convert_request(self, openai_req: dict) -> dict:
-        """OpenAI ChatCompletion 请求 -> Claude Messages 请求参数 dict"""
+        """OpenAI ChatCompletion 请求 dict -> Claude Messages 请求参数 dict"""
         settings = get_settings()
 
         system_text = None
@@ -30,18 +45,18 @@ class OpenAIToClaudeConverter(BaseConverter):
             tool_call_id = msg.get("tool_call_id")
 
             if role == "system":
-                system_text = content if isinstance(content, str) else _merge_text_parts(content)
+                system_text = content if isinstance(content, str) else self._merge_text_parts(content)
 
             elif role == "user":
                 claude_messages.append({
                     "role": "user",
-                    "content": _convert_content_to_claude(content),
+                    "content": self._convert_content_to_claude(content),
                 })
 
             elif role == "assistant":
                 blocks: list[dict] = []
                 if content:
-                    text = content if isinstance(content, str) else _merge_text_parts(content)
+                    text = content if isinstance(content, str) else self._merge_text_parts(content)
                     if text:
                         blocks.append({"type": "text", "text": text})
                 if tool_calls:
@@ -82,38 +97,35 @@ class OpenAIToClaudeConverter(BaseConverter):
         if openai_req.get("stream"):
             result["stream"] = True
         if openai_req.get("tools"):
-            result["tools"] = [_convert_tool_def(t) for t in openai_req["tools"]]
+            result["tools"] = [self._convert_tool_def(t) for t in openai_req["tools"]]
         if openai_req.get("tool_choice") is not None:
-            result["tool_choice"] = _convert_tool_choice_to_claude(openai_req["tool_choice"])
+            result["tool_choice"] = self._convert_tool_choice_to_claude(openai_req["tool_choice"])
 
         return result
 
     # ── 响应转换（非流式）──────────────────────────────────────
 
-    def convert_response(self, claude_resp: Any) -> dict:
-        """anthropic.types.Message -> OpenAI ChatCompletion dict"""
+    def convert_response(self, claude_resp: Message) -> ChatCompletion:
+        """anthropic.types.Message -> openai.types.chat.ChatCompletion"""
         text_parts: list[str] = []
-        tool_calls: list[dict] = []
+        tool_calls_list = []
 
         for block in claude_resp.content:
             if block.type == "text":
                 text_parts.append(block.text)
             elif block.type == "tool_use":
-                tool_calls.append({
-                    "id": block.id,
-                    "type": "function",
-                    "function": {
-                        "name": block.name,
-                        "arguments": json.dumps(block.input, ensure_ascii=False),
-                    },
-                })
-
-        message: dict[str, Any] = {
-            "role": "assistant",
-            "content": "\n".join(text_parts) if text_parts else None,
-        }
-        if tool_calls:
-            message["tool_calls"] = tool_calls
+                from openai.types.chat.chat_completion_message_tool_call import (
+                    ChatCompletionMessageToolCall,
+                    Function,
+                )
+                tool_calls_list.append(ChatCompletionMessageToolCall(
+                    id=block.id,
+                    type="function",
+                    function=Function(
+                        name=block.name,
+                        arguments=json.dumps(block.input, ensure_ascii=False),
+                    ),
+                ))
 
         stop_reason_map = {
             "end_turn": "stop",
@@ -123,68 +135,65 @@ class OpenAIToClaudeConverter(BaseConverter):
 
         usage = claude_resp.usage
 
-        return {
-            "id": f"chatcmpl-{claude_resp.id}",
-            "object": "chat.completion",
-            "created": int(time.time()),
-            "model": claude_resp.model,
-            "choices": [{
-                "index": 0,
-                "message": message,
-                "finish_reason": stop_reason_map.get(claude_resp.stop_reason or "", "stop"),
-            }],
-            "usage": {
-                "prompt_tokens": usage.input_tokens,
-                "completion_tokens": usage.output_tokens,
-                "total_tokens": usage.input_tokens + usage.output_tokens,
-            },
-        }
+        return ChatCompletion(
+            id=f"chatcmpl-{claude_resp.id}",
+            object="chat.completion",
+            created=int(time.time()),
+            model=claude_resp.model,
+            choices=[Choice(
+                index=0,
+                message=ChatCompletionMessage(
+                    role="assistant",
+                    content="\n".join(text_parts) if text_parts else None,
+                    tool_calls=tool_calls_list if tool_calls_list else None,
+                ),
+                finish_reason=stop_reason_map.get(claude_resp.stop_reason or "", "stop"),
+            )],
+            usage=CompletionUsage(
+                prompt_tokens=usage.input_tokens,
+                completion_tokens=usage.output_tokens,
+                total_tokens=usage.input_tokens + usage.output_tokens,
+            ),
+        )
 
     # ── 流式事件转换 ──────────────────────────────────────────
 
-    def convert_stream_event(self, event: Any, state: dict) -> list[str]:
-        """
-        anthropic RawMessageStreamEvent -> OpenAI SSE data 行列表。
-        state 用于跨事件维护: id, model, tool_call_index 等。
-        """
+    def convert_stream_event(self, event: RawMessageStreamEvent, state: dict) -> list[ChatCompletionChunk]:
+        """anthropic RawMessageStreamEvent -> list[ChatCompletionChunk]"""
         event_type = event.type
-        results: list[str] = []
+        results: list[ChatCompletionChunk] = []
 
         if event_type == "message_start":
             msg = event.message
             state["id"] = f"chatcmpl-{msg.id}"
             state["model"] = msg.model
             state["tool_call_index"] = -1
-            chunk = _make_chunk(state, delta={"role": "assistant"})
-            results.append(f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n")
+            results.append(self._make_chunk(state, delta=ChoiceDelta(role="assistant")))
 
         elif event_type == "content_block_start":
             block = event.content_block
             if block.type == "tool_use":
                 state["tool_call_index"] = state.get("tool_call_index", -1) + 1
-                chunk = _make_chunk(state, delta={
-                    "tool_calls": [{
-                        "index": state["tool_call_index"],
-                        "id": block.id,
-                        "type": "function",
-                        "function": {"name": block.name, "arguments": ""},
-                    }]
-                })
-                results.append(f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n")
+                results.append(self._make_chunk(state, delta=ChoiceDelta(
+                    tool_calls=[ChoiceDeltaToolCall(
+                        index=state["tool_call_index"],
+                        id=block.id,
+                        type="function",
+                        function=ChoiceDeltaToolCallFunction(name=block.name, arguments=""),
+                    )]
+                )))
 
         elif event_type == "content_block_delta":
             delta = event.delta
             if delta.type == "text_delta":
-                chunk = _make_chunk(state, delta={"content": delta.text})
-                results.append(f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n")
+                results.append(self._make_chunk(state, delta=ChoiceDelta(content=delta.text)))
             elif delta.type == "input_json_delta":
-                chunk = _make_chunk(state, delta={
-                    "tool_calls": [{
-                        "index": state.get("tool_call_index", 0),
-                        "function": {"arguments": delta.partial_json},
-                    }]
-                })
-                results.append(f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n")
+                results.append(self._make_chunk(state, delta=ChoiceDelta(
+                    tool_calls=[ChoiceDeltaToolCall(
+                        index=state.get("tool_call_index", 0),
+                        function=ChoiceDeltaToolCallFunction(arguments=delta.partial_json),
+                    )]
+                )))
 
         elif event_type == "message_delta":
             delta = event.delta
@@ -194,71 +203,73 @@ class OpenAIToClaudeConverter(BaseConverter):
             usage = None
             if usage_obj:
                 output_tokens = getattr(usage_obj, "output_tokens", 0)
-                usage = {
-                    "prompt_tokens": 0,
-                    "completion_tokens": output_tokens,
-                    "total_tokens": output_tokens,
-                }
-            chunk = _make_chunk(
+                usage = CompletionUsage(
+                    prompt_tokens=0,
+                    completion_tokens=output_tokens,
+                    total_tokens=output_tokens,
+                )
+            results.append(self._make_chunk(
                 state,
-                delta={},
+                delta=ChoiceDelta(),
                 finish_reason=stop_map.get(stop_reason, "stop"),
                 usage=usage,
-            )
-            results.append(f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n")
+            ))
 
         elif event_type == "message_stop":
-            results.append("data: [DONE]\n\n")
+            state["done"] = True
 
         return results
 
+    # ── 私有方法 ──────────────────────────────────────────────
 
-# ── 私有辅助函数 ──────────────────────────────────────────────
+    @staticmethod
+    def _convert_content_to_claude(content: str | list | None) -> str | list[dict]:
+        if content is None:
+            return ""
+        if isinstance(content, str):
+            return [{"type": "text", "text": content}]
+        blocks: list[dict] = []
+        for part in content:
+            if part.get("type") == "text":
+                blocks.append({"type": "text", "text": part["text"]})
+        return blocks or ""
 
-def _convert_content_to_claude(content: str | list | None) -> str | list[dict]:
-    if content is None:
-        return ""
-    if isinstance(content, str):
-        return [{"type": "text", "text": content}]
-    blocks: list[dict] = []
-    for part in content:
-        if part.get("type") == "text":
-            blocks.append({"type": "text", "text": part["text"]})
-    return blocks or ""
+    @staticmethod
+    def _merge_text_parts(content: list) -> str:
+        return "\n".join(p.get("text", "") for p in content if p.get("type") == "text")
 
+    @staticmethod
+    def _convert_tool_def(tool: dict) -> dict:
+        func = tool["function"]
+        return {
+            "name": func["name"],
+            "description": func.get("description", ""),
+            "input_schema": func.get("parameters", {}),
+        }
 
-def _merge_text_parts(content: list) -> str:
-    return "\n".join(p.get("text", "") for p in content if p.get("type") == "text")
+    @staticmethod
+    def _convert_tool_choice_to_claude(choice: str | dict) -> dict:
+        if isinstance(choice, str):
+            mapping = {"none": "none", "auto": "auto", "required": "any"}
+            return {"type": mapping.get(choice, "auto")}
+        return {"type": "tool", "name": choice["function"]["name"]}
 
-
-def _convert_tool_def(tool: dict) -> dict:
-    func = tool["function"]
-    return {
-        "name": func["name"],
-        "description": func.get("description", ""),
-        "input_schema": func.get("parameters", {}),
-    }
-
-
-def _convert_tool_choice_to_claude(choice: str | dict) -> dict:
-    if isinstance(choice, str):
-        mapping = {"none": "none", "auto": "auto", "required": "any"}
-        return {"type": mapping.get(choice, "auto")}
-    return {"type": "tool", "name": choice["function"]["name"]}
-
-
-def _make_chunk(state: dict, delta: dict, finish_reason: str | None = None, usage: dict | None = None) -> dict:
-    chunk: dict[str, Any] = {
-        "id": state.get("id", ""),
-        "object": "chat.completion.chunk",
-        "created": int(time.time()),
-        "model": state.get("model", ""),
-        "choices": [{
-            "index": 0,
-            "delta": delta,
-            "finish_reason": finish_reason,
-        }],
-    }
-    if usage:
-        chunk["usage"] = usage
-    return chunk
+    @staticmethod
+    def _make_chunk(
+        state: dict,
+        delta: ChoiceDelta,
+        finish_reason: str | None = None,
+        usage: CompletionUsage | None = None,
+    ) -> ChatCompletionChunk:
+        return ChatCompletionChunk(
+            id=state.get("id", ""),
+            object="chat.completion.chunk",
+            created=int(time.time()),
+            model=state.get("model", ""),
+            choices=[ChunkChoice(
+                index=0,
+                delta=delta,
+                finish_reason=finish_reason,
+            )],
+            usage=usage,
+        )

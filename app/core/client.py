@@ -11,7 +11,7 @@ class BaseClient(ABC):
 
     @abstractmethod
     async def send(
-        self, params: dict, api_key: str, stream: bool = False
+        self, params: Any, api_key: str, stream: bool = False
     ) -> Any:
-        """发送请求到上游 API。非流式返回响应对象，流式返回异步迭代器。"""
+        """发送请求到上游 API。params 接收 SDK Params 类型。非流式返回响应对象，流式返回异步迭代器。"""
         ...

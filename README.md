@@ -11,8 +11,9 @@
 - **Tool Calling**：完整支持工具调用互转（tools 定义、tool_choice、tool_calls/tool_use、tool 结果消息）
 - **模型名自动映射**：gpt-4o <-> claude-sonnet-4-6 等，可通过 YAML 配置自定义，未命中则透传
 - **认证透传**：不存储任何 API Key，从客户端请求中提取后直接传给上游
-- **错误格式转换**：上游错误、网络异常均转换为目标协议的错误格式
-- **多模态预留**：content 块采用多态设计，当前实现 text 类型，未来可扩展图片等
+- **错误格式转换**：利用 SDK 内置异常体系，自动转换为目标协议的错误格式
+- **SDK 原生类型**：全链路使用 OpenAI / Anthropic 官方 SDK 类型，类型安全，自动对齐上游 API
+- **可扩展架构**：ABC 抽象接口 + Provider 注册表，新增 Provider 只需实现接口并注册
 
 ---
 
@@ -26,7 +27,7 @@
 
 ```bash
 # 克隆项目
-git clone <repo-url>
+git clone https://github.com/cliffordll/api_proxy.git
 cd api_proxy
 
 # 安装依赖
@@ -97,31 +98,6 @@ curl http://localhost:8000/v1/chat/completions \
   }'
 ```
 
-**响应**（OpenAI 格式）：
-```json
-{
-  "id": "chatcmpl-msg_01ABC...",
-  "object": "chat.completion",
-  "created": 1713100000,
-  "model": "claude-sonnet-4-6-20250514",
-  "choices": [
-    {
-      "index": 0,
-      "message": {
-        "role": "assistant",
-        "content": "Hello! How can I help you today?"
-      },
-      "finish_reason": "stop"
-    }
-  ],
-  "usage": {
-    "prompt_tokens": 15,
-    "completion_tokens": 8,
-    "total_tokens": 23
-  }
-}
-```
-
 #### 流式请求示例
 
 ```bash
@@ -133,19 +109,6 @@ curl http://localhost:8000/v1/chat/completions \
     "messages": [{"role": "user", "content": "Tell me a joke"}],
     "stream": true
   }'
-```
-
-**响应**（SSE 格式，逐 token 推送）：
-```
-data: {"id":"chatcmpl-...","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant"},"finish_reason":null}]}
-
-data: {"id":"chatcmpl-...","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"Why"},"finish_reason":null}]}
-
-data: {"id":"chatcmpl-...","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":" did"},"finish_reason":null}]}
-
-...
-
-data: [DONE]
 ```
 
 #### Tool Calling 示例
@@ -203,27 +166,6 @@ curl http://localhost:8000/v1/messages \
   }'
 ```
 
-**响应**（Claude 格式）：
-```json
-{
-  "id": "msg_chatcmpl-...",
-  "type": "message",
-  "role": "assistant",
-  "model": "gpt-4o",
-  "content": [
-    {
-      "type": "text",
-      "text": "Hello! How can I help you today?"
-    }
-  ],
-  "stop_reason": "end_turn",
-  "usage": {
-    "input_tokens": 15,
-    "output_tokens": 8
-  }
-}
-```
-
 #### 流式请求示例
 
 ```bash
@@ -238,28 +180,11 @@ curl http://localhost:8000/v1/messages \
   }'
 ```
 
-**响应**（Claude SSE 格式）：
-```
-event: message_start
-data: {"type":"message_start","message":{"id":"msg_...","type":"message","role":"assistant","model":"gpt-4o","content":[],"usage":{"input_tokens":0,"output_tokens":0}}}
-
-event: content_block_start
-data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}
-
-event: content_block_delta
-data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Why"}}
-
-...
-
-event: message_stop
-data: {"type":"message_stop"}
-```
-
 ---
 
 ## 与 OpenAI SDK 配合使用
 
-如果你的项目使用 OpenAI Python SDK，只需修改 `base_url` 即可通过代理调用 Claude：
+只需修改 `base_url` 即可通过代理调用 Claude：
 
 ```python
 from openai import OpenAI
@@ -295,7 +220,7 @@ for chunk in stream:
 
 ## 与 Anthropic SDK 配合使用
 
-如果你的项目使用 Anthropic Python SDK，只需修改 `base_url` 即可通过代理调用 OpenAI：
+只需修改 `base_url` 即可通过代理调用 OpenAI：
 
 ```python
 import anthropic
@@ -363,8 +288,8 @@ OPENAI_BASE_URL=https://your-openai-proxy.example.com
 ```yaml
 openai_to_claude:
   gpt-4o: claude-sonnet-4-6-20250514
-  gpt-4o-mini: claude-haiku-4-5-20251001     # 新增映射
-  my-custom-model: claude-opus-4-6-20250514  # 自定义模型名
+  gpt-4o-mini: claude-haiku-4-5-20251001
+  my-custom-model: claude-opus-4-6-20250514
 
 claude_to_openai:
   claude-sonnet-4-6-20250514: gpt-4o
@@ -375,65 +300,24 @@ claude_to_openai:
 
 1. 优先使用 YAML 配置文件中的映射
 2. 配置文件不存在或未命中时，使用内置默认映射
-3. 默认映射也未命中时，**模型名原样透传**给上游（你可以直接使用上游支持的任意模型名）
-
----
-
-## 协议转换细节
-
-### 请求转换：OpenAI -> Claude
-
-| OpenAI 字段 | Claude 字段 | 说明 |
-|-------------|-------------|------|
-| `model` | `model` | 查映射表，未命中透传 |
-| `messages[role=system]` | `system` | 提取为顶层参数 |
-| `messages[role=user]` | `messages[role=user]` | content 转为 `[{type: "text", text: ...}]` |
-| `messages[role=assistant]` | `messages[role=assistant]` | tool_calls 转为 tool_use content block |
-| `messages[role=tool]` | `messages[role=user]` | 转为 tool_result content block |
-| `max_tokens` | `max_tokens` | 未指定时使用默认值 4096 |
-| `temperature` / `top_p` | `temperature` / `top_p` | 直接透传 |
-| `stop` | `stop_sequences` | 字符串自动转为列表 |
-| `stream` | `stream` | 直接透传 |
-| `tools` | `tools` | function -> name/description/input_schema |
-| `tool_choice` | `tool_choice` | none/auto/required/specific 分别映射 |
-
-### 请求转换：Claude -> OpenAI
-
-| Claude 字段 | OpenAI 字段 | 说明 |
-|-------------|-------------|------|
-| `system` | `messages[0]{role: system}` | 注入为首条消息 |
-| `messages` | `messages` | tool_use -> tool_calls，tool_result -> role: tool |
-| `max_tokens` | `max_tokens` | 直接透传 |
-| `stop_sequences` | `stop` | 直接透传 |
-| `tools` | `tools` | name/input_schema -> function/parameters |
-| `tool_choice` | `tool_choice` | none/auto/any/tool 分别映射 |
-
-### 响应字段映射
-
-| 方向 | 停止原因映射 |
-|------|-------------|
-| Claude -> OpenAI | `end_turn` -> `stop`，`max_tokens` -> `length`，`tool_use` -> `tool_calls` |
-| OpenAI -> Claude | `stop` -> `end_turn`，`length` -> `max_tokens`，`tool_calls` -> `tool_use` |
-
-| 方向 | 用量字段映射 |
-|------|-------------|
-| Claude -> OpenAI | `input_tokens` -> `prompt_tokens`，`output_tokens` -> `completion_tokens` |
-| OpenAI -> Claude | `prompt_tokens` -> `input_tokens`，`completion_tokens` -> `output_tokens` |
+3. 默认映射也未命中时，**模型名原样透传**给上游
 
 ---
 
 ## 错误处理
 
-代理对各类错误进行捕获并转换为目标协议的错误格式。
+代理利用 SDK 内置异常体系捕获错误并转换为目标协议格式。
 
 | 错误场景 | HTTP 状态码 | 说明 |
 |----------|------------|------|
 | 缺少认证 Header | 401 | 缺少 `Authorization` 或 `x-api-key` |
 | 请求体 JSON 无效 | 400 | JSON 解析失败 |
 | 请求字段缺失/无效 | 400 | 转换过程中 Key/Value 错误 |
-| 上游返回 4xx/5xx | 原样透传状态码 | 解析上游错误体并转换格式 |
-| 上游连接失败 | 502 | Bad Gateway |
-| 上游请求超时 | 504 | Gateway Timeout |
+| 上游认证失败 | 401 | `AuthenticationError` |
+| 上游频率限制 | 429 | `RateLimitError` |
+| 上游服务错误 | 502 | `InternalServerError` |
+| 上游连接失败 | 502 | `APIConnectionError` |
+| 上游请求超时 | 504 | `APITimeoutError` |
 
 **OpenAI 格式错误响应**：
 ```json
@@ -461,30 +345,58 @@ api_proxy/
 ├── docs/
 │   ├── architecture.md          # 架构设计文档
 │   ├── feature.md               # 开发计划
-│   └── process.md               # 开发过程记录
+│   ├── process.md               # 开发过程记录
+│   └── hotfix/                  # Hotfix 设计与开发记录
+│       └── fix1/
+│           ├── design.md
+│           └── process.md
 ├── app/
-│   ├── config.py                # Settings 配置 + 模型映射加载
+│   ├── core/
+│   │   ├── client.py            # BaseClient 抽象基类
+│   │   ├── converter.py         # BaseConverter 抽象基类 (Generic)
+│   │   ├── config.py            # Settings 配置 + 模型映射加载
+│   │   ├── registry.py          # ProviderRegistry + ProviderEntry
+│   │   └── errors.py            # SDK 异常 → HTTP 错误格式转换
 │   ├── routes/
 │   │   ├── openai_compat.py     # POST /v1/chat/completions
 │   │   └── claude_compat.py     # POST /v1/messages
 │   ├── converters/
-│   │   ├── openai_to_claude.py  # OpenAI->Claude 请求/响应/流 转换
-│   │   └── claude_to_openai.py  # Claude->OpenAI 请求/响应/流 转换
-│   ├── clients/
-│   │   ├── claude_client.py     # Anthropic API 调用封装
-│   │   └── openai_client.py     # OpenAI API 调用封装
-│   └── models/
-│       ├── openai_models.py     # OpenAI Pydantic v2 数据模型
-│       └── claude_models.py     # Claude Pydantic v2 数据模型
+│   │   ├── openai_to_claude.py  # OpenAIToClaudeConverter
+│   │   └── claude_to_openai.py  # ClaudeToOpenAIConverter
+│   └── clients/
+│       ├── claude_client.py     # ClaudeClient (anthropic.AsyncAnthropic)
+│       └── openai_client.py     # OpenAIClient (openai.AsyncOpenAI)
 └── tests/
-    ├── conftest.py              # 测试配置
+    ├── conftest.py
+    ├── test_core/
+    │   ├── test_registry.py
+    │   └── test_errors.py
     ├── test_converters/
-    │   ├── test_openai_to_claude.py  # 转换器单元测试 (20 tests)
-    │   └── test_claude_to_openai.py  # 转换器单元测试 (16 tests)
+    │   ├── test_openai_to_claude.py
+    │   └── test_claude_to_openai.py
     └── test_routes/
-        ├── test_openai_compat.py     # 路由集成测试 (4 tests)
-        └── test_claude_compat.py     # 路由集成测试 (4 tests)
+        ├── test_openai_compat.py
+        └── test_claude_compat.py
 ```
+
+---
+
+## 架构设计
+
+```
+请求流向：
+
+OpenAI 客户端 → /v1/chat/completions → OpenAIToClaudeConverter → ClaudeClient → Claude API
+                                      ← OpenAIToClaudeConverter ←
+
+Claude 客户端 → /v1/messages → ClaudeToOpenAIConverter → OpenAIClient → OpenAI API
+                             ← ClaudeToOpenAIConverter ←
+```
+
+核心设计：
+- **BaseClient / BaseConverter**：ABC 抽象基类，定义客户端和转换器接口
+- **ProviderRegistry**：注册表模式，路由层通过注册表获取 Provider 进行调度
+- **SDK 原生类型**：转换器返回 SDK 结构体（`ChatCompletion`、`Message` 等），路由层通过 `model_dump()` 序列化
 
 ---
 
@@ -499,9 +411,12 @@ python -m pytest tests/test_converters/ -v
 
 # 仅运行路由集成测试
 python -m pytest tests/test_routes/ -v
+
+# 仅运行核心模块测试
+python -m pytest tests/test_core/ -v
 ```
 
-当前测试覆盖：**44 个测试**，包括：
+当前测试覆盖：**57 个测试**，包括：
 
 - 纯文本对话（单轮/多轮）
 - system 消息提取/注入
@@ -509,12 +424,13 @@ python -m pytest tests/test_routes/ -v
 - tool_choice 值映射（none/auto/required/specific）
 - tool_calls / tool_use 消息互转
 - tool 结果消息互转
-- 流式事件逐条转换
-- tool_call 参数流式累积
+- 流式事件逐条转换 + tool_call 参数累积
 - max_tokens 缺省填充
 - 模型名映射 + 未命中透传
 - 认证 Key 透传验证
 - 缺少认证返回 401
+- Registry 注册/获取/不存在报错
+- SDK 异常 → 错误格式转换
 
 ---
 
@@ -523,8 +439,8 @@ python -m pytest tests/test_routes/ -v
 | 组件 | 技术选型 |
 |------|---------|
 | Web 框架 | FastAPI |
-| HTTP 客户端 | httpx (AsyncClient，长连接池) |
-| 数据校验 | Pydantic v2 |
+| OpenAI 客户端 | openai SDK (AsyncOpenAI) |
+| Anthropic 客户端 | anthropic SDK (AsyncAnthropic) |
 | 配置管理 | pydantic-settings (支持 .env) |
 | 模型映射 | PyYAML |
 | 测试 | pytest + pytest-asyncio |
@@ -533,13 +449,12 @@ python -m pytest tests/test_routes/ -v
 
 ## 局限性与后续扩展
 
-当前版本**暂不支持**但架构已预留扩展点：
-
 | 扩展项 | 扩展方式 |
 |--------|---------|
-| 多模态（图片/文件） | Models 层 ContentBlock 联合类型添加 ImageContent，Converters 添加对应分支 |
-| 自定义认证中间件 | FastAPI middleware，在路由层之前拦截 |
-| 多 Key 轮询/负载均衡 | Clients 层内部实现 Key 池，对外接口不变 |
+| 新增 Provider（如 Gemini） | 实现 `BaseClient` + `BaseConverter`，注册到 `ProviderRegistry`，添加路由 |
+| 多模态（图片/文件） | SDK 类型已原生支持，转换器添加对应分支即可 |
+| 自定义认证中间件 | FastAPI middleware，不影响转换和客户端层 |
+| 多 Key 轮询/负载均衡 | 客户端类内部实现 Key 池，接口不变 |
 | 请求日志/监控 | FastAPI middleware + 结构化日志 |
 | 响应缓存 | 路由层添加缓存装饰器 |
 

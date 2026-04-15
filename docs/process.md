@@ -29,17 +29,17 @@
 
 | # | 任务 | 说明 | 产出文件 | 状态 |
 |---|------|------|---------|------|
-| 2.1 | 定义 BaseClient Protocol | 声明 `send(params, api_key, stream)` 方法 | `app/core/protocols.py` | 完成 |
-| 2.2 | 定义 BaseConverter Protocol | 声明 `convert_request()`、`convert_response()`、`convert_stream_event()` 方法 | `app/core/protocols.py` | 完成 |
+| 2.1 | 定义 BaseClient ABC | 声明 `send(params, api_key, stream)` 方法 | `app/core/client.py` | 完成 |
+| 2.2 | 定义 BaseConverter ABC | 声明 `convert_request()`、`convert_response()`、`convert_stream_event()` 方法 | `app/core/converter.py` | 完成 |
 | 2.3 | 实现 ProviderEntry | `dataclass`：client + request_converter + response_converter | `app/core/registry.py` | 完成 |
 | 2.4 | 实现 ProviderRegistry | `register()`、`get()`、`list_providers()` 方法 | `app/core/registry.py` | 完成 |
 
-**验收**：Protocol 可被 `isinstance` 检查，Registry 注册/获取/不存在报错逻辑正确
+**验收**：ABC 继承正确，Registry 注册/获取/不存在报错逻辑正确
 
 **执行记录**：
 
-- 2.1：使用 `typing.Protocol` + `@runtime_checkable`，声明 `send(params, api_key, stream)` 方法
-- 2.2：声明 `convert_request()`、`convert_response()`、`convert_stream_event()` 三个方法
+- 2.1：使用 ABC 定义 BaseClient，声明 `send(params: Any, api_key, stream)` 抽象方法，拆分到 `app/core/client.py`
+- 2.2：使用 ABC + Generic[TRequest, TResponse, TEvent] 定义 BaseConverter，拆分到 `app/core/converter.py`
 - 2.3：`@dataclass`，包含 `client`、`request_converter`、`response_converter` 三个字段
 - 2.4：`register()`、`get()`（不存在时抛 KeyError）、`list_providers()` 方法，模块级 `registry` 全局实例
 - 验收：Registry 注册/获取/不存在报错/list 逻辑全部通过，**通过**
@@ -54,7 +54,7 @@
 | 3.2 | 实现 OpenAIClient 类 | 封装 `openai.AsyncOpenAI`，非流式返回 `ChatCompletion`，流式返回 `AsyncStream[ChatCompletionChunk]` | `app/clients/openai_client.py` | 完成 |
 | 3.3 | 删除遗留文件 | 删除 `app/clients/openai_sdk_client.py` | — | 完成 |
 
-**验收**：两个客户端类通过 `isinstance(client, BaseClient)` 检查
+**验收**：两个客户端类继承 BaseClient，`params: Any` 签名正确
 
 **执行记录**：
 
@@ -69,8 +69,8 @@
 
 | # | 任务 | 说明 | 产出文件 | 状态 |
 |---|------|------|---------|------|
-| 4.1 | 实现 OpenAIToClaudeConverter | 请求：`dict` → `dict`；响应：`anthropic.types.Message` → `dict`；流式：`RawMessageStreamEvent` → `list[str]` | `app/converters/openai_to_claude.py` | 完成 |
-| 4.2 | 实现 ClaudeToOpenAIConverter | 请求：`dict` → `dict`；响应：`ChatCompletion` → `dict`；流式：`ChatCompletionChunk` → `list[str]` | `app/converters/claude_to_openai.py` | 完成 |
+| 4.1 | 实现 OpenAIToClaudeConverter | 请求：`dict` → `dict`；响应：`Message` → `ChatCompletion`；流式：`RawMessageStreamEvent` → `list[ChatCompletionChunk]` | `app/converters/openai_to_claude.py` | 完成 |
+| 4.2 | 实现 ClaudeToOpenAIConverter | 请求：`dict` → `dict`；响应：`ChatCompletion` → `Message`；流式：`ChatCompletionChunk` → `list[str]` | `app/converters/claude_to_openai.py` | 完成 |
 
 **改动要点**：
 - 模块级函数 → 类方法
@@ -78,13 +78,13 @@
 - 流式事件输入从 str/dict 改为 SDK 事件类型
 - `[DONE]` 信号由路由层处理，不在转换器中处理
 
-**验收**：两个转换器类通过 `isinstance(converter, BaseConverter)` 检查
+**验收**：两个转换器类继承 BaseConverter，响应返回 SDK 类型对象
 
 **执行记录**：
 
-- 4.1：OpenAIToClaudeConverter 类，convert_request 逻辑不变；convert_response 输入改为 `anthropic.types.Message`（属性访问）；convert_stream_event 输入改为 `RawMessageStreamEvent`（属性访问）
-- 4.2：ClaudeToOpenAIConverter 类，convert_request 逻辑不变；convert_response 输入改为 `ChatCompletion`（属性访问）；convert_stream_event 输入改为 `ChatCompletionChunk`（属性访问）；新增 `convert_stream_done()` 方法处理流结束事件（原 `[DONE]` 逻辑从转换器移出）
-- 验收：`isinstance` 检查均为 True，**通过**
+- 4.1：OpenAIToClaudeConverter 继承 `BaseConverter[dict, Message, RawMessageStreamEvent]`；convert_response 返回 `ChatCompletion` SDK 对象；convert_stream_event 返回 `list[ChatCompletionChunk]`；私有辅助函数封装为类 `@staticmethod`
+- 4.2：ClaudeToOpenAIConverter 继承 `BaseConverter[dict, ChatCompletion, ChatCompletionChunk]`；convert_response 返回 `anthropic.types.Message` SDK 对象；新增 `convert_stream_done()` 方法；私有辅助函数封装为类 `@staticmethod`
+- 验收：继承关系正确，返回 SDK 类型，**通过**
 
 ---
 
@@ -100,7 +100,7 @@
 
 **执行记录**：
 
-- 5.1：`main.py` 使用 `@app.on_event("startup")` 注册两个 Provider：`"claude"`（ClaudeClient + OpenAIToClaudeConverter）和 `"openai"`（OpenAIClient + ClaudeToOpenAIConverter）
+- 5.1：`main.py` 使用 `lifespan` 上下文管理器注册两个 Provider：`"claude"`（ClaudeClient + OpenAIToClaudeConverter）和 `"openai"`（OpenAIClient + ClaudeToOpenAIConverter）
 - 5.2：`openai_compat.py` 通过 `registry.get("claude")` 获取 Provider，非流式直接调用；流式使用 `async with client.send(..., stream=True) as stream_resp` 上下文管理器
 - 5.3：`claude_compat.py` 通过 `registry.get("openai")` 获取 Provider，流式使用 `await client.send(..., stream=True)` 返回 AsyncStream，结束后调用 `convert_stream_done(state)`
 - 验收：Health check 200、缺少 Key 401 均正确，**通过**

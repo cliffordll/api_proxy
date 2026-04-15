@@ -54,16 +54,17 @@ async def chat_completions(
         if not stream:
             result = await provider.client.send(claude_req, api_key=api_key, stream=False)
             openai_resp = provider.response_converter.convert_response(result)
-            return JSONResponse(content=openai_resp)
+            return JSONResponse(content=openai_resp.model_dump())
 
         # 流式
         async def generate():
             state = {}
             async with provider.client.send(claude_req, api_key=api_key, stream=True) as stream_resp:
                 async for event in stream_resp:
-                    lines = provider.response_converter.convert_stream_event(event, state)
-                    for line in lines:
-                        yield line
+                    chunks = provider.response_converter.convert_stream_event(event, state)
+                    for chunk in chunks:
+                        yield f"data: {chunk.model_dump_json()}\n\n"
+            yield "data: [DONE]\n\n"
 
         return StreamingResponse(generate(), media_type="text/event-stream")
 

@@ -17,7 +17,7 @@ class ClaudeClient(BaseClient):
         self.base_url = base_url
 
     async def send(
-        self, params: dict, api_key: str, stream: bool = False
+        self, params: Any, api_key: str, stream: bool = False
     ) -> Any:
         """
         发送请求到 Claude Messages API。

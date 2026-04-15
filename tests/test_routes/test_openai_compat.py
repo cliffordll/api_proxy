@@ -1,11 +1,11 @@
 """OpenAI 兼容路由集成测试"""
 
-import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from anthropic.types import Message, TextBlock, Usage
 
 from main import app
 
@@ -25,19 +25,15 @@ async def test_missing_auth(client):
 
 @pytest.mark.asyncio
 async def test_non_stream(client):
-    # 构造 mock anthropic.types.Message
-    mock_msg = MagicMock()
-    mock_msg.id = "msg_test123"
-    mock_msg.model = "claude-sonnet-4-6-20250514"
-    mock_text = MagicMock()
-    mock_text.type = "text"
-    mock_text.text = "Hi from Claude!"
-    mock_msg.content = [mock_text]
-    mock_msg.stop_reason = "end_turn"
-    mock_usage = MagicMock()
-    mock_usage.input_tokens = 10
-    mock_usage.output_tokens = 5
-    mock_msg.usage = mock_usage
+    mock_msg = Message(
+        id="msg_test123",
+        type="message",
+        role="assistant",
+        model="claude-sonnet-4-6-20250514",
+        content=[TextBlock(type="text", text="Hi from Claude!")],
+        stop_reason="end_turn",
+        usage=Usage(input_tokens=10, output_tokens=5),
+    )
 
     with patch("app.clients.claude_client.ClaudeClient.send", new_callable=AsyncMock, return_value=mock_msg):
         resp = await client.post(
@@ -55,18 +51,15 @@ async def test_non_stream(client):
 
 @pytest.mark.asyncio
 async def test_key_passthrough(client):
-    mock_msg = MagicMock()
-    mock_msg.id = "msg_x"
-    mock_msg.model = "m"
-    mock_text = MagicMock()
-    mock_text.type = "text"
-    mock_text.text = "ok"
-    mock_msg.content = [mock_text]
-    mock_msg.stop_reason = "end_turn"
-    mock_usage = MagicMock()
-    mock_usage.input_tokens = 1
-    mock_usage.output_tokens = 1
-    mock_msg.usage = mock_usage
+    mock_msg = Message(
+        id="msg_x",
+        type="message",
+        role="assistant",
+        model="m",
+        content=[TextBlock(type="text", text="ok")],
+        stop_reason="end_turn",
+        usage=Usage(input_tokens=1, output_tokens=1),
+    )
 
     with patch("app.clients.claude_client.ClaudeClient.send", new_callable=AsyncMock, return_value=mock_msg) as mock_send:
         await client.post(

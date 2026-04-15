@@ -4,6 +4,11 @@ import json
 from unittest.mock import MagicMock
 
 import pytest
+from anthropic.types import Message
+from openai.types.chat import ChatCompletion, ChatCompletionMessage
+from openai.types.chat.chat_completion import Choice
+from openai.types.chat.chat_completion_message_tool_call import ChatCompletionMessageToolCall, Function
+from openai.types import CompletionUsage
 from app.converters.claude_to_openai import ClaudeToOpenAIConverter
 
 
@@ -125,51 +130,54 @@ class TestConvertRequest:
         assert result["model"] == "unknown-model"
 
 
-# ── convert_response ──────────────────────────────────────
+# ── convert_response (returns anthropic.types.Message) ────
 
 def _mock_completion(id="chatcmpl-abc", model="gpt-4o", content="Hello!", tool_calls=None, finish_reason="stop", prompt_tokens=10, completion_tokens=5):
-    """构造模拟的 openai.types.chat.ChatCompletion"""
-    resp = MagicMock()
-    resp.id = id
-    resp.model = model
-
-    message = MagicMock()
-    message.content = content
-    message.tool_calls = tool_calls
-
-    choice = MagicMock()
-    choice.message = message
-    choice.finish_reason = finish_reason
-
-    resp.choices = [choice]
-
-    usage = MagicMock()
-    usage.prompt_tokens = prompt_tokens
-    usage.completion_tokens = completion_tokens
-    resp.usage = usage
-
-    return resp
+    """构造真实的 openai.types.chat.ChatCompletion"""
+    tc_list = None
+    if tool_calls:
+        tc_list = tool_calls
+    return ChatCompletion(
+        id=id,
+        object="chat.completion",
+        created=0,
+        model=model,
+        choices=[Choice(
+            index=0,
+            message=ChatCompletionMessage(
+                role="assistant",
+                content=content,
+                tool_calls=tc_list,
+            ),
+            finish_reason=finish_reason,
+        )],
+        usage=CompletionUsage(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=prompt_tokens + completion_tokens,
+        ),
+    )
 
 
 def _mock_tool_call(id, name, arguments):
-    tc = MagicMock()
-    tc.id = id
-    tc.function = MagicMock()
-    tc.function.name = name
-    tc.function.arguments = arguments
-    return tc
+    return ChatCompletionMessageToolCall(
+        id=id,
+        type="function",
+        function=Function(name=name, arguments=arguments),
+    )
 
 
 class TestConvertResponse:
     def test_text_response(self, converter):
         resp = _mock_completion()
         result = converter.convert_response(resp)
-        assert result["id"] == "msg_abc"
-        assert result["content"][0]["type"] == "text"
-        assert result["content"][0]["text"] == "Hello!"
-        assert result["stop_reason"] == "end_turn"
-        assert result["usage"]["input_tokens"] == 10
-        assert result["usage"]["output_tokens"] == 5
+        assert isinstance(result, Message)
+        assert result.id == "msg_abc"
+        assert result.content[0].type == "text"
+        assert result.content[0].text == "Hello!"
+        assert result.stop_reason == "end_turn"
+        assert result.usage.input_tokens == 10
+        assert result.usage.output_tokens == 5
 
     def test_tool_calls_response(self, converter):
         tc = _mock_tool_call("call_1", "get_weather", '{"city":"Beijing"}')
@@ -180,31 +188,36 @@ class TestConvertResponse:
             finish_reason="tool_calls",
         )
         result = converter.convert_response(resp)
-        assert result["stop_reason"] == "tool_use"
-        assert result["content"][0]["type"] == "text"
-        assert result["content"][1]["type"] == "tool_use"
-        assert result["content"][1]["input"] == {"city": "Beijing"}
+        assert isinstance(result, Message)
+        assert result.stop_reason == "tool_use"
+        assert result.content[0].type == "text"
+        assert result.content[1].type == "tool_use"
+        assert result.content[1].input == {"city": "Beijing"}
 
     def test_length_stop(self, converter):
         resp = _mock_completion(content="partial", finish_reason="length")
         result = converter.convert_response(resp)
-        assert result["stop_reason"] == "max_tokens"
+        assert isinstance(result, Message)
+        assert result.stop_reason == "max_tokens"
 
 
 # ── convert_stream_event ──────────────────────────────────
 
 def _mock_chunk(id="chatcmpl-001", model="gpt-4o", content=None, tool_calls=None, finish_reason=None, usage=None):
-    """构造模拟的 openai.types.chat.ChatCompletionChunk"""
-    chunk = MagicMock()
+    """构造模拟的 ChatCompletionChunk"""
+    from openai.types.chat import ChatCompletionChunk
+    from openai.types.chat.chat_completion_chunk import Choice as ChunkChoice, ChoiceDelta
+
+    chunk = MagicMock(spec=ChatCompletionChunk)
     chunk.id = id
     chunk.model = model
     chunk.usage = usage
 
-    delta = MagicMock()
+    delta = MagicMock(spec=ChoiceDelta)
     delta.content = content
     delta.tool_calls = tool_calls
 
-    choice = MagicMock()
+    choice = MagicMock(spec=ChunkChoice)
     choice.delta = delta
     choice.finish_reason = finish_reason
 

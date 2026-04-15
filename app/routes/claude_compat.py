@@ -44,7 +44,7 @@ async def messages(
         if not stream:
             result = await provider.client.send(openai_req, api_key=api_key, stream=False)
             claude_resp = provider.response_converter.convert_response(result)
-            return JSONResponse(content=claude_resp)
+            return JSONResponse(content=claude_resp.model_dump())
 
         # 流式
         async def generate():

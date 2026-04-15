@@ -146,8 +146,8 @@ for chunk in chunks:
 |------|---------|
 | `app/core/converter.py` | BaseConverter 改为 Generic，签名使用 TypeVar |
 | `app/core/client.py` | `params: dict` → `params: Any` |
-| `app/converters/openai_to_claude.py` | 输入输出改为 SDK 类型，内部字段访问相应调整 |
-| `app/converters/claude_to_openai.py` | 输入输出改为 SDK 类型，内部字段访问相应调整 |
+| `app/converters/openai_to_claude.py` | 输入输出改为 SDK 类型，私有辅助函数移入类中作为 `@staticmethod` |
+| `app/converters/claude_to_openai.py` | 输入输出改为 SDK 类型，私有辅助函数移入类中作为 `@staticmethod` |
 | `app/routes/openai_compat.py` | 请求体用 SDK 类型解析，响应用 `.model_dump()` 序列化 |
 | `app/routes/claude_compat.py` | 请求体用 SDK 类型解析，响应用 `.model_dump()` 序列化 |
 | `tests/` | mock 对象和断言适配新类型 |

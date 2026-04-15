@@ -4,6 +4,7 @@ import json
 from unittest.mock import MagicMock
 
 import pytest
+from openai.types.chat import ChatCompletion, ChatCompletionChunk
 from app.converters.openai_to_claude import OpenAIToClaudeConverter
 
 
@@ -167,48 +168,40 @@ class TestConvertRequest:
         assert len(result["messages"]) == 3
 
 
-# ── convert_response ──────────────────────────────────────
+# ── convert_response (returns ChatCompletion) ─────────────
 
 def _mock_message(id="msg_abc", model="claude-sonnet-4-6-20250514", content=None, stop_reason="end_turn", input_tokens=10, output_tokens=5):
-    """构造模拟的 anthropic.types.Message 对象"""
-    msg = MagicMock()
-    msg.id = id
-    msg.model = model
-    msg.content = content or []
-    msg.stop_reason = stop_reason
-    usage = MagicMock()
-    usage.input_tokens = input_tokens
-    usage.output_tokens = output_tokens
-    msg.usage = usage
-    return msg
+    """构造模拟的 anthropic.types.Message"""
+    from anthropic.types import Message, Usage, TextBlock
+    blocks = content or []
+    return Message(
+        id=id, type="message", role="assistant", model=model,
+        content=blocks, stop_reason=stop_reason,
+        usage=Usage(input_tokens=input_tokens, output_tokens=output_tokens),
+    )
 
 
 def _mock_text_block(text):
-    block = MagicMock()
-    block.type = "text"
-    block.text = text
-    return block
+    from anthropic.types import TextBlock
+    return TextBlock(type="text", text=text)
 
 
 def _mock_tool_use_block(id, name, input_data):
-    block = MagicMock()
-    block.type = "tool_use"
-    block.id = id
-    block.name = name
-    block.input = input_data
-    return block
+    from anthropic.types import ToolUseBlock
+    return ToolUseBlock(type="tool_use", id=id, name=name, input=input_data)
 
 
 class TestConvertResponse:
     def test_text_response(self, converter):
         resp = _mock_message(content=[_mock_text_block("Hello!")])
         result = converter.convert_response(resp)
-        assert result["id"].startswith("chatcmpl-")
-        assert result["choices"][0]["message"]["content"] == "Hello!"
-        assert result["choices"][0]["finish_reason"] == "stop"
-        assert result["usage"]["prompt_tokens"] == 10
-        assert result["usage"]["completion_tokens"] == 5
-        assert result["usage"]["total_tokens"] == 15
+        assert isinstance(result, ChatCompletion)
+        assert result.id.startswith("chatcmpl-")
+        assert result.choices[0].message.content == "Hello!"
+        assert result.choices[0].finish_reason == "stop"
+        assert result.usage.prompt_tokens == 10
+        assert result.usage.completion_tokens == 5
+        assert result.usage.total_tokens == 15
 
     def test_tool_use_response(self, converter):
         resp = _mock_message(
@@ -219,10 +212,10 @@ class TestConvertResponse:
             stop_reason="tool_use",
         )
         result = converter.convert_response(resp)
-        assert result["choices"][0]["finish_reason"] == "tool_calls"
-        tc = result["choices"][0]["message"]["tool_calls"][0]
-        assert tc["function"]["name"] == "get_weather"
-        assert json.loads(tc["function"]["arguments"]) == {"city": "Beijing"}
+        assert result.choices[0].finish_reason == "tool_calls"
+        tc = result.choices[0].message.tool_calls[0]
+        assert tc.function.name == "get_weather"
+        assert json.loads(tc.function.arguments) == {"city": "Beijing"}
 
     def test_max_tokens_stop(self, converter):
         resp = _mock_message(
@@ -230,13 +223,12 @@ class TestConvertResponse:
             stop_reason="max_tokens",
         )
         result = converter.convert_response(resp)
-        assert result["choices"][0]["finish_reason"] == "length"
+        assert result.choices[0].finish_reason == "length"
 
 
-# ── convert_stream_event ──────────────────────────────────
+# ── convert_stream_event (returns list[ChatCompletionChunk]) ─
 
 def _mock_stream_event(event_type, **kwargs):
-    """构造模拟的 anthropic RawMessageStreamEvent"""
     event = MagicMock()
     event.type = event_type
     for k, v in kwargs.items():
@@ -253,8 +245,8 @@ class TestConvertStreamEvent:
         state = {}
         results = converter.convert_stream_event(event, state)
         assert len(results) == 1
-        chunk = json.loads(results[0].replace("data: ", ""))
-        assert chunk["choices"][0]["delta"]["role"] == "assistant"
+        assert isinstance(results[0], ChatCompletionChunk)
+        assert results[0].choices[0].delta.role == "assistant"
 
     def test_text_delta(self, converter):
         delta = MagicMock()
@@ -264,8 +256,8 @@ class TestConvertStreamEvent:
         state = {"id": "chatcmpl-001", "model": "m"}
         results = converter.convert_stream_event(event, state)
         assert len(results) == 1
-        chunk = json.loads(results[0].replace("data: ", ""))
-        assert chunk["choices"][0]["delta"]["content"] == "Hello"
+        assert isinstance(results[0], ChatCompletionChunk)
+        assert results[0].choices[0].delta.content == "Hello"
 
     def test_tool_use_stream(self, converter):
         block = MagicMock()
@@ -276,14 +268,15 @@ class TestConvertStreamEvent:
         state = {"id": "chatcmpl-001", "model": "m", "tool_call_index": -1}
         results = converter.convert_stream_event(event, state)
         assert len(results) == 1
-        chunk = json.loads(results[0].replace("data: ", ""))
-        assert chunk["choices"][0]["delta"]["tool_calls"][0]["function"]["name"] == "get_weather"
+        assert isinstance(results[0], ChatCompletionChunk)
+        assert results[0].choices[0].delta.tool_calls[0].function.name == "get_weather"
 
     def test_message_stop(self, converter):
         event = _mock_stream_event("message_stop")
         state = {}
         results = converter.convert_stream_event(event, state)
-        assert results == ["data: [DONE]\n\n"]
+        assert results == []
+        assert state.get("done") is True
 
     def test_message_delta_stop_reason(self, converter):
         delta = MagicMock()
@@ -293,5 +286,5 @@ class TestConvertStreamEvent:
         event = _mock_stream_event("message_delta", delta=delta, usage=usage)
         state = {"id": "chatcmpl-001", "model": "m"}
         results = converter.convert_stream_event(event, state)
-        chunk = json.loads(results[0].replace("data: ", ""))
-        assert chunk["choices"][0]["finish_reason"] == "stop"
+        assert isinstance(results[0], ChatCompletionChunk)
+        assert results[0].choices[0].finish_reason == "stop"

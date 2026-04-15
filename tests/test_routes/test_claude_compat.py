@@ -1,11 +1,13 @@
 """Claude 兼容路由集成测试"""
 
-import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from openai.types.chat import ChatCompletion, ChatCompletionMessage
+from openai.types.chat.chat_completion import Choice
+from openai.types import CompletionUsage
 
 from main import app
 
@@ -29,25 +31,18 @@ async def test_missing_api_key(client):
 
 @pytest.mark.asyncio
 async def test_non_stream(client):
-    # 构造 mock openai.types.chat.ChatCompletion
-    mock_resp = MagicMock()
-    mock_resp.id = "chatcmpl-test456"
-    mock_resp.model = "gpt-4o"
-
-    mock_message = MagicMock()
-    mock_message.content = "Hi from OpenAI!"
-    mock_message.tool_calls = None
-
-    mock_choice = MagicMock()
-    mock_choice.message = mock_message
-    mock_choice.finish_reason = "stop"
-
-    mock_resp.choices = [mock_choice]
-
-    mock_usage = MagicMock()
-    mock_usage.prompt_tokens = 10
-    mock_usage.completion_tokens = 5
-    mock_resp.usage = mock_usage
+    mock_resp = ChatCompletion(
+        id="chatcmpl-test456",
+        object="chat.completion",
+        created=0,
+        model="gpt-4o",
+        choices=[Choice(
+            index=0,
+            message=ChatCompletionMessage(role="assistant", content="Hi from OpenAI!"),
+            finish_reason="stop",
+        )],
+        usage=CompletionUsage(prompt_tokens=10, completion_tokens=5, total_tokens=15),
+    )
 
     with patch("app.clients.openai_client.OpenAIClient.send", new_callable=AsyncMock, return_value=mock_resp):
         resp = await client.post(
@@ -69,24 +64,18 @@ async def test_non_stream(client):
 
 @pytest.mark.asyncio
 async def test_key_passthrough(client):
-    mock_resp = MagicMock()
-    mock_resp.id = "chatcmpl-x"
-    mock_resp.model = "gpt-4o"
-
-    mock_message = MagicMock()
-    mock_message.content = "ok"
-    mock_message.tool_calls = None
-
-    mock_choice = MagicMock()
-    mock_choice.message = mock_message
-    mock_choice.finish_reason = "stop"
-
-    mock_resp.choices = [mock_choice]
-
-    mock_usage = MagicMock()
-    mock_usage.prompt_tokens = 1
-    mock_usage.completion_tokens = 1
-    mock_resp.usage = mock_usage
+    mock_resp = ChatCompletion(
+        id="chatcmpl-x",
+        object="chat.completion",
+        created=0,
+        model="gpt-4o",
+        choices=[Choice(
+            index=0,
+            message=ChatCompletionMessage(role="assistant", content="ok"),
+            finish_reason="stop",
+        )],
+        usage=CompletionUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+    )
 
     with patch("app.clients.openai_client.OpenAIClient.send", new_callable=AsyncMock, return_value=mock_resp) as mock_send:
         await client.post(

@@ -7,20 +7,22 @@ import time
 import uuid
 from typing import Any
 
+from openai.types.chat import ChatCompletion, ChatCompletionChunk
+from anthropic.types import Message, TextBlock, ToolUseBlock, Usage
+
 from app.core.config import map_model
 from app.core.converter import BaseConverter
 
 
-class ClaudeToOpenAIConverter(BaseConverter):
-    """实现 BaseConverter 接口：Claude 格式 → OpenAI 格式。"""
+class ClaudeToOpenAIConverter(BaseConverter[dict, ChatCompletion, ChatCompletionChunk]):
+    """Claude 格式请求 → OpenAI 格式请求，OpenAI 响应 → Claude 响应。"""
 
     # ── 请求转换 ───────────────────────────────────────────────
 
     def convert_request(self, claude_req: dict) -> dict:
-        """Claude Messages 请求 -> OpenAI ChatCompletion 请求参数 dict"""
+        """Claude Messages 请求 dict -> OpenAI ChatCompletion 请求参数 dict"""
         messages: list[dict] = []
 
-        # system -> 首条 system message
         if claude_req.get("system"):
             messages.append({"role": "system", "content": claude_req["system"]})
 
@@ -89,32 +91,32 @@ class ClaudeToOpenAIConverter(BaseConverter):
         if claude_req.get("stream"):
             result["stream"] = True
         if claude_req.get("tools"):
-            result["tools"] = [_convert_tool_def(t) for t in claude_req["tools"]]
+            result["tools"] = [self._convert_tool_def(t) for t in claude_req["tools"]]
         if claude_req.get("tool_choice") is not None:
-            result["tool_choice"] = _convert_tool_choice_to_openai(claude_req["tool_choice"])
+            result["tool_choice"] = self._convert_tool_choice_to_openai(claude_req["tool_choice"])
 
         return result
 
     # ── 响应转换（非流式）──────────────────────────────────────
 
-    def convert_response(self, openai_resp: Any) -> dict:
-        """openai.types.chat.ChatCompletion -> Claude Messages 响应 dict"""
+    def convert_response(self, openai_resp: ChatCompletion) -> Message:
+        """openai.types.chat.ChatCompletion -> anthropic.types.Message"""
         choice = openai_resp.choices[0]
         message = choice.message
 
-        content_blocks: list[dict] = []
+        content_blocks: list[TextBlock | ToolUseBlock] = []
 
         if message.content:
-            content_blocks.append({"type": "text", "text": message.content})
+            content_blocks.append(TextBlock(type="text", text=message.content))
 
         if message.tool_calls:
             for tc in message.tool_calls:
-                content_blocks.append({
-                    "type": "tool_use",
-                    "id": tc.id,
-                    "name": tc.function.name,
-                    "input": json.loads(tc.function.arguments) if isinstance(tc.function.arguments, str) else tc.function.arguments,
-                })
+                content_blocks.append(ToolUseBlock(
+                    type="tool_use",
+                    id=tc.id,
+                    name=tc.function.name,
+                    input=json.loads(tc.function.arguments) if isinstance(tc.function.arguments, str) else tc.function.arguments,
+                ))
 
         finish_reason = choice.finish_reason or "stop"
         stop_reason_map = {
@@ -127,25 +129,25 @@ class ClaudeToOpenAIConverter(BaseConverter):
         orig_id = openai_resp.id or ""
         claude_id = orig_id.replace("chatcmpl-", "msg_") if orig_id.startswith("chatcmpl-") else orig_id
 
-        return {
-            "id": claude_id or f"msg_{uuid.uuid4().hex[:24]}",
-            "type": "message",
-            "role": "assistant",
-            "model": openai_resp.model,
-            "content": content_blocks,
-            "stop_reason": stop_reason_map.get(finish_reason, "end_turn"),
-            "usage": {
-                "input_tokens": usage.prompt_tokens if usage else 0,
-                "output_tokens": usage.completion_tokens if usage else 0,
-            },
-        }
+        return Message(
+            id=claude_id or f"msg_{uuid.uuid4().hex[:24]}",
+            type="message",
+            role="assistant",
+            model=openai_resp.model,
+            content=content_blocks,
+            stop_reason=stop_reason_map.get(finish_reason, "end_turn"),
+            usage=Usage(
+                input_tokens=usage.prompt_tokens if usage else 0,
+                output_tokens=usage.completion_tokens if usage else 0,
+            ),
+        )
 
     # ── 流式事件转换 ──────────────────────────────────────────
 
-    def convert_stream_event(self, chunk: Any, state: dict) -> list[str]:
+    def convert_stream_event(self, chunk: ChatCompletionChunk, state: dict) -> list[str]:
         """
         openai.types.chat.ChatCompletionChunk -> Claude SSE event 行列表。
-        state 维护: started, content_block_index, current_tool_index 等。
+        Claude SSE 协议无对应 SDK 类型，仍返回 list[str]。
         """
         results: list[str] = []
 
@@ -166,7 +168,7 @@ class ClaudeToOpenAIConverter(BaseConverter):
             state["msg_id"] = msg_id
             state["model"] = chunk.model or ""
 
-            results.append(_sse("message_start", {
+            results.append(self._sse("message_start", {
                 "message": {
                     "id": msg_id,
                     "type": "message",
@@ -176,14 +178,14 @@ class ClaudeToOpenAIConverter(BaseConverter):
                     "usage": {"input_tokens": 0, "output_tokens": 0},
                 }
             }))
-            results.append(_sse("content_block_start", {
+            results.append(self._sse("content_block_start", {
                 "index": 0,
                 "content_block": {"type": "text", "text": ""},
             }))
 
         # text content
         if delta and delta.content:
-            results.append(_sse("content_block_delta", {
+            results.append(self._sse("content_block_delta", {
                 "index": state.get("content_block_index", 0),
                 "delta": {"type": "text_delta", "text": delta.content},
             }))
@@ -194,15 +196,14 @@ class ClaudeToOpenAIConverter(BaseConverter):
                 tc_index = tc.index if tc.index is not None else 0
 
                 if tc_index > state.get("current_tool_index", -1):
-                    # 新的 tool_call: 关闭上一个 block，开始新 block
                     if state.get("content_block_open"):
-                        results.append(_sse("content_block_stop", {"index": state["content_block_index"]}))
+                        results.append(self._sse("content_block_stop", {"index": state["content_block_index"]}))
 
                     state["content_block_index"] = state.get("content_block_index", 0) + 1
                     state["current_tool_index"] = tc_index
                     state["content_block_open"] = True
 
-                    results.append(_sse("content_block_start", {
+                    results.append(self._sse("content_block_start", {
                         "index": state["content_block_index"],
                         "content_block": {
                             "type": "tool_use",
@@ -212,10 +213,9 @@ class ClaudeToOpenAIConverter(BaseConverter):
                         },
                     }))
 
-                # arguments delta
                 args = tc.function.arguments if tc.function else None
                 if args:
-                    results.append(_sse("content_block_delta", {
+                    results.append(self._sse("content_block_delta", {
                         "index": state["content_block_index"],
                         "delta": {"type": "input_json_delta", "partial_json": args},
                     }))
@@ -232,48 +232,48 @@ class ClaudeToOpenAIConverter(BaseConverter):
         return results
 
     def convert_stream_done(self, state: dict) -> list[str]:
-        """生成流结束时的 Claude SSE 事件（content_block_stop + message_delta + message_stop）。"""
+        """生成流结束时的 Claude SSE 事件。"""
         results: list[str] = []
 
         if state.get("content_block_open"):
-            results.append(_sse("content_block_stop", {"index": state.get("content_block_index", 0)}))
+            results.append(self._sse("content_block_stop", {"index": state.get("content_block_index", 0)}))
             state["content_block_open"] = False
 
-        results.append(_sse("message_delta", {
+        results.append(self._sse("message_delta", {
             "delta": {"stop_reason": state.get("stop_reason", "end_turn")},
             "usage": {"output_tokens": state.get("output_tokens", 0)},
         }))
-        results.append(_sse("message_stop", {}))
+        results.append(self._sse("message_stop", {}))
 
         return results
 
+    # ── 私有方法 ──────────────────────────────────────────────
 
-# ── 私有辅助函数 ──────────────────────────────────────────────
+    @staticmethod
+    def _convert_tool_def(tool: dict) -> dict:
+        return {
+            "type": "function",
+            "function": {
+                "name": tool["name"],
+                "description": tool.get("description", ""),
+                "parameters": tool.get("input_schema", {}),
+            },
+        }
 
-def _convert_tool_def(tool: dict) -> dict:
-    return {
-        "type": "function",
-        "function": {
-            "name": tool["name"],
-            "description": tool.get("description", ""),
-            "parameters": tool.get("input_schema", {}),
-        },
-    }
-
-
-def _convert_tool_choice_to_openai(choice: dict) -> str | dict:
-    ctype = choice.get("type", "auto")
-    if ctype == "none":
-        return "none"
-    if ctype == "auto":
+    @staticmethod
+    def _convert_tool_choice_to_openai(choice: dict) -> str | dict:
+        ctype = choice.get("type", "auto")
+        if ctype == "none":
+            return "none"
+        if ctype == "auto":
+            return "auto"
+        if ctype == "any":
+            return "required"
+        if ctype == "tool":
+            return {"type": "function", "function": {"name": choice["name"]}}
         return "auto"
-    if ctype == "any":
-        return "required"
-    if ctype == "tool":
-        return {"type": "function", "function": {"name": choice["name"]}}
-    return "auto"
 
-
-def _sse(event_type: str, data: dict) -> str:
-    payload = {"type": event_type, **data}
-    return f"event: {event_type}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+    @staticmethod
+    def _sse(event_type: str, data: dict) -> str:
+        payload = {"type": event_type, **data}
+        return f"event: {event_type}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
