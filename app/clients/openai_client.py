@@ -6,10 +6,11 @@ from typing import Any
 
 import openai
 
+from app.core.client import BaseClient
 from app.core.config import get_settings
 
 
-class OpenAIClient:
+class OpenAIClient(BaseClient):
     """封装 openai.AsyncOpenAI，实现 BaseClient 接口。"""
 
     def __init__(self, base_url: str) -> None:
@@ -28,8 +29,5 @@ class OpenAIClient:
             base_url=self.base_url,
         )
 
-        if not stream:
-            return await client.chat.completions.create(**params)
-
-        # 流式：返回 AsyncStream[ChatCompletionChunk]
-        return await client.chat.completions.create(**params, stream=True)
+        params["stream"] = stream
+        return await client.chat.completions.create(**params)

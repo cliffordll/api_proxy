@@ -6,10 +6,11 @@ from typing import Any
 
 import anthropic
 
+from app.core.client import BaseClient
 from app.core.config import get_settings
 
 
-class ClaudeClient:
+class ClaudeClient(BaseClient):
     """封装 anthropic.AsyncAnthropic，实现 BaseClient 接口。"""
 
     def __init__(self, base_url: str) -> None:
@@ -27,6 +28,9 @@ class ClaudeClient:
             api_key=api_key,
             base_url=self.base_url,
         )
+
+        # 移除 stream 字段，由客户端方法控制
+        params.pop("stream", None)
 
         if not stream:
             return await client.messages.create(**params)
