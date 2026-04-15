@@ -1,4 +1,6 @@
-# 架构设计 - API Proxy
+# 架构设计 - API Proxy（SDK 原生版）
+
+> 核心理念：使用 OpenAI / Anthropic 官方 SDK 原生类型，通过抽象接口和注册机制实现良好封装与可扩展性。
 
 ## 1. 系统架构总览
 
@@ -10,12 +12,14 @@
                         │    │                            │
                         │    ▼                            │
                         │  OpenAI→Claude 转换器            │
+                        │  (openai.types → anthropic.types)│
                         │    │                            │
                         │    ▼                            │         ┌──────────────┐
-                        │  Claude Client ─────────────────────────► │ Claude API   │
+                        │  anthropic.AsyncAnthropic ──────────────► │ Claude API   │
                         │    │                            │         └──────────────┘
                         │    ▼                            │
                         │  Claude→OpenAI 转换器（响应）     │
+                        │  (anthropic.types → openai.types)│
                         │    │                            │
                         │    ▼                            │
   OpenAI 格式客户端 ◄──────  OpenAI 格式响应               │
@@ -26,12 +30,14 @@
                         │    │                            │
                         │    ▼                            │
                         │  Claude→OpenAI 转换器            │
+                        │  (anthropic.types → openai.types)│
                         │    │                            │
                         │    ▼                            │         ┌──────────────┐
-                        │  OpenAI Client ─────────────────────────► │ OpenAI API   │
+                        │  openai.AsyncOpenAI ────────────────────► │ OpenAI API   │
                         │    │                            │         └──────────────┘
                         │    ▼                            │
                         │  OpenAI→Claude 转换器（响应）     │
+                        │  (openai.types → anthropic.types)│
                         │    │                            │
                         │    ▼                            │
   Claude 格式客户端 ◄──────  Claude 格式响应               │
@@ -39,104 +45,241 @@
                         └─────────────────────────────────┘
 ```
 
-## 2. 设计决策
+## 2. 设计原则
 
-| 决策项 | 结论 | 说明 |
-|--------|------|------|
-| 方向 | **双向** | 同时支持 OpenAI->Claude 和 Claude->OpenAI |
-| 多模态 | **暂不支持，预留扩展** | content 块采用多态设计，当前只实现 text 类型 |
-| Tool Calling | **首版支持** | 完整支持 tools/tool_choice/tool_calls/tool_use 互转 |
-| 认证 | **透传 Key** | 从请求 Header 提取 Key 直接传给上游，不做自定义鉴权 |
-| 模型映射 | **配置文件加载** | 默认内置映射 + 支持 YAML 配置文件覆盖，未命中则透传 |
+| 原则 | 说明 |
+|------|------|
+| **接口抽象** | 客户端层和转换层通过 Protocol 定义抽象接口，各实现可独立替换 |
+| **注册机制** | 通过 Provider 注册表管理客户端和转换器，新增 Provider 只需注册，不改路由层 |
+| **SDK 原生** | 数据模型直接使用官方 SDK 类型，不自定义 Pydantic 模型 |
+| **职责分离** | 路由层薄调度、转换层纯函数、客户端层封装 I/O，各层通过接口解耦 |
+| **配置驱动** | 模型映射、上游地址等均通过配置管理，不硬编码 |
 
-## 3. 核心模块
+## 3. 依赖
 
-### 3.1 路由层 (Routes)
+```
+# requirements.txt
+fastapi>=0.110.0
+uvicorn>=0.29.0
+pydantic-settings>=2.2.0
+pyyaml>=6.0.1
+openai>=1.30.0          # AsyncOpenAI 客户端 + openai.types
+anthropic>=0.49.0        # AsyncAnthropic 客户端 + anthropic.types
+pytest>=8.1.0
+pytest-asyncio>=0.23.0
+```
 
-薄层，仅负责接收请求、提取 Header、调度转换和客户端、返回响应。
+## 4. 核心模块
 
-- **`openai_compat.py`** — `POST /v1/chat/completions`
-- **`claude_compat.py`** — `POST /v1/messages`
+### 4.1 抽象接口层 (Protocols)
 
-### 3.2 转换层 (Converters)
+定义客户端和转换器的抽象接口，所有实现必须遵循。
 
-**核心层**。纯函数，无 I/O，无副作用，方便单元测试。
+```python
+# app/core/protocols.py
+
+from typing import Protocol, Any, AsyncIterator, runtime_checkable
+
+@runtime_checkable
+class BaseClient(Protocol):
+    """客户端抽象接口"""
+    async def send(
+        self, params: dict, api_key: str, stream: bool = False
+    ) -> Any:
+        """发送请求，非流式返回响应对象，流式返回异步迭代器"""
+        ...
+
+@runtime_checkable
+class BaseConverter(Protocol):
+    """转换器抽象接口"""
+    def convert_request(self, request: dict) -> dict:
+        """将源协议请求转换为目标协议请求"""
+        ...
+
+    def convert_response(self, response: Any) -> dict:
+        """将目标协议响应转换为源协议响应"""
+        ...
+
+    def convert_stream_event(self, event: Any, state: dict) -> list:
+        """将目标协议流式事件转换为源协议流式事件"""
+        ...
+```
+
+### 4.2 Provider 注册表 (Registry)
+
+集中管理所有 Provider 的客户端和转换器，路由层通过注册表获取实例。
+
+```python
+# app/core/registry.py
+
+from dataclasses import dataclass
+
+@dataclass
+class ProviderEntry:
+    """Provider 注册条目"""
+    client: BaseClient
+    request_converter: BaseConverter   # 入站协议 → 该 Provider 协议
+    response_converter: BaseConverter  # 该 Provider 协议 → 入站协议
+
+class ProviderRegistry:
+    """Provider 注册表"""
+    _providers: dict[str, ProviderEntry] = {}
+
+    def register(self, name: str, entry: ProviderEntry) -> None: ...
+    def get(self, name: str) -> ProviderEntry: ...
+    def list_providers(self) -> list[str]: ...
+```
+
+**扩展方式**：新增 Provider（如 Gemini）只需：
+1. 实现 `BaseClient` 和 `BaseConverter`
+2. 调用 `registry.register("gemini", entry)` 注册
+3. 添加对应路由（或复用通用路由）
+
+### 4.3 客户端层 (Clients)
+
+实现 `BaseClient` 接口，封装官方 SDK 调用。
+
+#### `claude_client.py`
+
+```python
+import anthropic
+from app.core.protocols import BaseClient
+
+class ClaudeClient(BaseClient):
+    def __init__(self, base_url: str):
+        self.base_url = base_url
+
+    async def send(self, params: dict, api_key: str, stream: bool = False):
+        client = anthropic.AsyncAnthropic(api_key=api_key, base_url=self.base_url)
+        if not stream:
+            return await client.messages.create(**params)
+        return client.messages.stream(**params)
+```
+
+#### `openai_client.py`
+
+```python
+import openai
+from app.core.protocols import BaseClient
+
+class OpenAIClient(BaseClient):
+    def __init__(self, base_url: str):
+        self.base_url = base_url
+
+    async def send(self, params: dict, api_key: str, stream: bool = False):
+        client = openai.AsyncOpenAI(api_key=api_key, base_url=self.base_url)
+        if not stream:
+            return await client.chat.completions.create(**params)
+        return await client.chat.completions.create(**params, stream=True)
+```
+
+**封装要点**：
+- 客户端实例化封装在类内部，外部只关心 `send()` 接口
+- SDK 自动管理 Header（`x-api-key`、`Authorization: Bearer`、`anthropic-version`）
+- base_url 通过构造函数注入，支持自定义上游地址
+
+### 4.4 转换层 (Converters)
+
+实现 `BaseConverter` 接口，纯函数逻辑封装为类方法，无 I/O，无副作用。
 
 #### `openai_to_claude.py`
 
-| 函数 | 输入 | 输出 |
-|------|------|------|
-| `convert_request(openai_req)` | OpenAI 请求体 | Claude 请求体 |
-| `convert_response(claude_resp)` | Claude 响应体 | OpenAI 响应体 |
-| `convert_stream_event(claude_event, state)` | Claude SSE 事件 | OpenAI SSE 数据行 |
+```python
+from app.protocols import BaseConverter
+
+class OpenAIToClaudeConverter(BaseConverter):
+    def convert_request(self, request: dict) -> dict:
+        """OpenAI 请求 dict → Claude MessageCreateParams"""
+        ...
+
+    def convert_response(self, response) -> dict:
+        """anthropic.types.Message → OpenAI ChatCompletion dict"""
+        ...
+
+    def convert_stream_event(self, event, state: dict) -> list:
+        """RawMessageStreamEvent → list[ChatCompletionChunk dict]"""
+        ...
+```
 
 #### `claude_to_openai.py`
 
-| 函数 | 输入 | 输出 |
-|------|------|------|
-| `convert_request(claude_req)` | Claude 请求体 | OpenAI 请求体 |
-| `convert_response(openai_resp)` | OpenAI 响应体 | Claude 响应体 |
-| `convert_stream_event(openai_event, state)` | OpenAI SSE 数据行 | Claude SSE 事件 |
-
-> 流式转换函数接收 `state` 参数（可变字典），用于跨事件累积 tool_call 参数片段。
-
-### 3.3 客户端层 (Clients)
-
-使用 `httpx.AsyncClient` 长连接池，统一封装：
-
-- **`claude_client.py`** — 调用 Anthropic API，设置 `x-api-key` + `anthropic-version` Header
-- **`openai_client.py`** — 调用 OpenAI API，设置 `Authorization: Bearer` Header
-
-两个客户端对外暴露统一接口：
-
 ```python
-async def send(request_body: dict, api_key: str, stream: bool) -> Response | AsyncIterator
+from app.protocols import BaseConverter
+
+class ClaudeToOpenAIConverter(BaseConverter):
+    def convert_request(self, request: dict) -> dict:
+        """Claude 请求 dict → OpenAI ChatCompletionCreateParams"""
+        ...
+
+    def convert_response(self, response) -> dict:
+        """ChatCompletion → anthropic.types.Message dict"""
+        ...
+
+    def convert_stream_event(self, event, state: dict) -> list:
+        """ChatCompletionChunk → list[str] (Claude SSE 事件行)"""
+        ...
 ```
 
-### 3.4 数据模型层 (Models)
-
-Pydantic v2 模型，作为各层的数据契约。
-
-**多态 content 设计**（预留多模态扩展）：
+**SDK 类型速查**：
 
 ```python
-# 当前实现
-class TextContent(BaseModel):
-    type: Literal["text"]
-    text: str
+# OpenAI SDK (openai.types.chat)
+from openai.types.chat import (
+    ChatCompletion, ChatCompletionChunk, ChatCompletionMessage,
+    ChatCompletionMessageParam, ChatCompletionToolParam,
+    ChatCompletionToolChoiceOptionParam,
+)
 
-# 未来扩展（暂不实现）
-class ImageContent(BaseModel):
-    type: Literal["image"]
-    source: ImageSource
-
-# 联合类型，扩展时只需在此添加
-ContentBlock = TextContent  # 未来: TextContent | ImageContent | ...
+# Anthropic SDK (anthropic.types)
+from anthropic.types import (
+    Message, MessageParam, MessageCreateParams,
+    ContentBlock, TextBlock, ToolUseBlock,
+    ToolParam, ToolChoiceParam, ToolResultBlockParam, Usage,
+    RawMessageStreamEvent, RawMessageStartEvent,
+    RawContentBlockStartEvent, RawContentBlockDeltaEvent,
+    RawContentBlockStopEvent, RawMessageDeltaEvent, RawMessageStopEvent,
+)
 ```
 
-### 3.5 配置层 (Config)
+### 4.5 路由层 (Routes)
+
+薄层调度，通过注册表获取客户端和转换器，不直接依赖具体实现。
 
 ```python
+# app/routes/openai_compat.py — POST /v1/chat/completions
+# app/routes/claude_compat.py — POST /v1/messages
+
+# 路由层伪代码
+async def handle_request(request, provider_name: str):
+    provider = registry.get(provider_name)
+    converted = provider.request_converter.convert_request(request_body)
+    response = await provider.client.send(converted, api_key, stream)
+    return provider.response_converter.convert_response(response)
+```
+
+**职责边界**：
+- 接收请求，提取 API Key
+- 通过注册表获取对应 Provider
+- 调用转换器和客户端
+- 返回响应（非流式 JSON / 流式 SSE）
+
+### 4.6 配置层 (Config) — 移入 core
+
+```python
+# app/core/config.py
 class Settings(BaseSettings):
-    # 上游 URL
     anthropic_base_url: str = "https://api.anthropic.com"
     openai_base_url: str = "https://api.openai.com"
-
-    # 服务
     host: str = "0.0.0.0"
     port: int = 8000
     log_level: str = "info"
-
-    # 默认参数
     default_max_tokens: int = 4096
-
-    # 模型映射配置文件路径
     model_mapping_file: str = "config/model_mapping.yaml"
 ```
 
-## 4. 关键数据映射
+## 5. 关键数据映射
 
-### 4.1 请求：OpenAI -> Claude
+### 5.1 请求：OpenAI → Claude
 
 ```
 OpenAI                          Claude
@@ -148,7 +291,6 @@ messages                 ->     system + messages
   role: assistant        ->     role: assistant
   role: tool             ->     role: user + tool_result content block
   content (string)       ->     content: [{type: "text", text: ...}]
-  content (array)        ->     content (映射各 text 块；图片块暂跳过)
   tool_calls             ->     content: [{type: "tool_use", ...}]
 max_tokens               ->     max_tokens (必填，无则用默认值)
 temperature              ->     temperature
@@ -159,7 +301,7 @@ tools                    ->     tools (schema 结构转换)
 tool_choice              ->     tool_choice (值映射)
 ```
 
-### 4.2 请求：Claude -> OpenAI
+### 5.2 请求：Claude → OpenAI
 
 ```
 Claude                          OpenAI
@@ -170,7 +312,6 @@ messages                 ->     messages (追加在 system 之后)
   role: user             ->     role: user
   role: assistant        ->     role: assistant
   tool_result content    ->     role: tool message
-  content (array)        ->     合并 text 块为 string 或保留 array
   tool_use content       ->     assistant message + tool_calls
 max_tokens               ->     max_tokens
 temperature              ->     temperature
@@ -181,7 +322,7 @@ tools                    ->     tools (schema 结构转换)
 tool_choice              ->     tool_choice (值映射)
 ```
 
-### 4.3 响应：Claude -> OpenAI
+### 5.3 响应：Claude → OpenAI
 
 ```
 Claude Response                 OpenAI Response
@@ -197,7 +338,7 @@ usage.input_tokens       ->     usage.prompt_tokens
 usage.output_tokens      ->     usage.completion_tokens
 ```
 
-### 4.4 响应：OpenAI -> Claude
+### 5.4 响应：OpenAI → Claude
 
 ```
 OpenAI Response                 Claude Response
@@ -214,9 +355,17 @@ usage.prompt_tokens      ->     usage.input_tokens
 usage.completion_tokens  ->     usage.output_tokens
 ```
 
-## 5. 流式处理
+## 6. 流式处理
 
-### 5.1 Claude SSE -> OpenAI SSE
+### 6.1 Claude SSE → OpenAI SSE
+
+```python
+# SDK 原生事件流
+async with claude_client.send(params, key, stream=True) as stream:
+    async for event in stream:
+        # event: RawMessageStreamEvent（已类型化）
+        chunks = converter.convert_stream_event(event, state)
+```
 
 | Claude 事件 | 转换为 OpenAI |
 |-------------|--------------|
@@ -229,7 +378,15 @@ usage.completion_tokens  ->     usage.output_tokens
 | `message_delta` | `{choices: [{finish_reason: "..."}]}`，附带 usage |
 | `message_stop` | `data: [DONE]` |
 
-### 5.2 OpenAI SSE -> Claude SSE
+### 6.2 OpenAI SSE → Claude SSE
+
+```python
+# SDK 原生 chunk 流
+stream = await openai_client.send(params, key, stream=True)
+async for chunk in stream:
+    # chunk: ChatCompletionChunk（已类型化）
+    events = converter.convert_stream_event(chunk, state)
+```
 
 | OpenAI 事件 | 转换为 Claude |
 |-------------|--------------|
@@ -240,9 +397,9 @@ usage.completion_tokens  ->     usage.output_tokens
 | finish_reason 出现 | `content_block_stop` + `message_delta(stop_reason)` |
 | `[DONE]` | `message_stop` |
 
-## 6. Tool Calling 转换
+## 7. Tool Calling 转换
 
-### 6.1 Tools 定义：OpenAI -> Claude
+### 7.1 Tools 定义
 
 ```python
 # OpenAI 格式
@@ -252,25 +409,47 @@ usage.completion_tokens  ->     usage.output_tokens
 {"name": "...", "description": "...", "input_schema": {...}}
 ```
 
-### 6.2 tool_choice 映射
+### 7.2 tool_choice 映射
 
 | OpenAI | Claude |
 |--------|--------|
-| `"none"` | `{"type": "none"}` |  
+| `"none"` | `{"type": "none"}` |
 | `"auto"` | `{"type": "auto"}` |
 | `"required"` | `{"type": "any"}` |
 | `{"type":"function","function":{"name":"X"}}` | `{"type": "tool", "name": "X"}` |
 
-### 6.3 Tool 结果消息
+### 7.3 Tool 结果消息
 
 ```
 OpenAI: {role: "tool", tool_call_id: "xxx", content: "..."}
 Claude: {role: "user", content: [{type: "tool_result", tool_use_id: "xxx", content: "..."}]}
 ```
 
-## 7. 模型映射
+## 8. 错误处理
 
-### 7.1 配置文件 `config/model_mapping.yaml`
+利用 SDK 内置异常体系：
+
+| SDK 异常 | HTTP 状态码 | 说明 |
+|---------|-----------|------|
+| `AuthenticationError` | 401 | 认证失败 |
+| `RateLimitError` | 429 | 频率限制 |
+| `BadRequestError` | 400 | 请求参数错误 |
+| `InternalServerError` | 502 | 上游服务错误 |
+| `APITimeoutError` | 504 | 网络超时 |
+| `APIConnectionError` | 502 | 连接失败 |
+
+错误格式映射：
+```python
+# OpenAI 错误格式
+{"error": {"message": "...", "type": "...", "code": "..."}}
+
+# Claude 错误格式
+{"type": "error", "error": {"type": "...", "message": "..."}}
+```
+
+## 9. 模型映射
+
+### 9.1 配置文件 `config/model_mapping.yaml`
 
 ```yaml
 openai_to_claude:
@@ -285,13 +464,13 @@ claude_to_openai:
   claude-haiku-4-5-20251001: gpt-3.5-turbo
 ```
 
-### 7.2 加载策略
+### 9.2 加载策略
 
 1. 内置默认映射（硬编码兜底）
 2. 若 `model_mapping_file` 路径存在，加载 YAML 覆盖默认值
 3. 请求中的 model 未命中映射表时，原样透传给上游
 
-## 8. 认证透传
+## 10. 认证透传
 
 ```
 客户端请求                    代理提取                    上游请求
@@ -300,31 +479,7 @@ Authorization: Bearer sk-xxx  -> api_key = "sk-xxx"  -> 对应上游 Header
 x-api-key: sk-ant-xxx         -> api_key = "sk-ant-xxx" -> 对应上游 Header
 ```
 
-- `/v1/chat/completions` 端点：从 `Authorization: Bearer` 提取，转为 Claude 的 `x-api-key`
-- `/v1/messages` 端点：从 `x-api-key` 提取，转为 OpenAI 的 `Authorization: Bearer`
-
-## 9. 错误处理
-
-上游错误转换为目标协议格式：
-
-| 场景 | 行为 |
-|------|------|
-| 上游返回 4xx/5xx | 解析错误体，转换为目标协议的错误格式 |
-| 上游连接超时 | 返回 504 Gateway Timeout |
-| 上游连接拒绝 | 返回 502 Bad Gateway |
-| 请求体校验失败 | 返回 400，使用目标协议的错误格式 |
-
-### 错误格式映射
-
-```python
-# OpenAI 错误格式
-{"error": {"message": "...", "type": "...", "code": "..."}}
-
-# Claude 错误格式
-{"type": "error", "error": {"type": "...", "message": "..."}}
-```
-
-## 10. 项目结构
+## 11. 项目结构
 
 ```
 api_proxy/
@@ -333,32 +488,33 @@ api_proxy/
 ├── requirements.txt
 ├── config/
 │   └── model_mapping.yaml       # 模型映射配置
-├── .env.example                 # 环境变量示例
+├── .env.example
 ├── docs/
 │   ├── architecture.md          # 本文档
 │   └── feature.md               # 开发计划
 ├── app/
 │   ├── __init__.py
-│   ├── config.py                # Settings + 模型映射加载
+│   ├── core/
+│   │   ├── __init__.py
+│   │   ├── config.py            # Settings + 模型映射加载
+│   │   ├── protocols.py         # 抽象接口定义 (BaseClient, BaseConverter)
+│   │   ├── registry.py          # Provider 注册表
+│   │   └── errors.py            # 错误处理工具函数
 │   ├── routes/
 │   │   ├── __init__.py
 │   │   ├── openai_compat.py     # POST /v1/chat/completions
 │   │   └── claude_compat.py     # POST /v1/messages
 │   ├── converters/
 │   │   ├── __init__.py
-│   │   ├── openai_to_claude.py  # 请求/响应/流 转换
-│   │   └── claude_to_openai.py  # 请求/响应/流 转换
-│   ├── clients/
-│   │   ├── __init__.py
-│   │   ├── claude_client.py     # Anthropic API 调用
-│   │   └── openai_client.py     # OpenAI API 调用
-│   └── models/
+│   │   ├── openai_to_claude.py  # OpenAIToClaudeConverter
+│   │   └── claude_to_openai.py  # ClaudeToOpenAIConverter
+│   └── clients/
 │       ├── __init__.py
-│       ├── openai_models.py     # OpenAI Pydantic 模型
-│       └── claude_models.py     # Claude Pydantic 模型
+│       ├── claude_client.py     # ClaudeClient (anthropic.AsyncAnthropic)
+│       └── openai_client.py     # OpenAIClient (openai.AsyncOpenAI)
 └── tests/
     ├── __init__.py
-    ├── conftest.py              # 测试 fixtures
+    ├── conftest.py
     ├── test_converters/
     │   ├── __init__.py
     │   ├── test_openai_to_claude.py
@@ -369,14 +525,19 @@ api_proxy/
         └── test_claude_compat.py
 ```
 
-## 11. 扩展预留
+**与旧版结构差异**：
+- 新增 `app/core/` — 集中存放核心基础模块（config、protocols、registry、errors）
+- `app/config.py` 移入 `app/core/config.py`
+- 删除 `app/models/` — 不再维护自定义数据模型
+- 客户端和转换器从模块级函数改为类实现
 
-当前架构为以下能力预留了扩展点，暂不实现：
+## 12. 扩展预留
 
 | 扩展项 | 扩展方式 |
 |--------|---------|
-| **多模态 (图片/文件)** | Models 层 ContentBlock 联合类型添加新类型，Converters 添加对应分支 |
-| **认证中间件** | FastAPI middleware，在路由层之前拦截，不影响转换和客户端层 |
-| **多上游负载均衡** | Clients 层内部实现 Key 轮询，对外接口不变 |
+| **新增 Provider (如 Gemini)** | 实现 `BaseClient` + `BaseConverter`，注册到 `ProviderRegistry`，添加路由 |
+| **多模态 (图片/文件)** | SDK 类型已原生支持，转换器添加对应分支即可 |
+| **认证中间件** | FastAPI middleware，不影响转换和客户端层 |
+| **多上游负载均衡** | 客户端类内部实现 Key 轮询，接口不变 |
 | **请求日志/监控** | FastAPI middleware + 结构化日志 |
-| **缓存** | 路由层添加缓存装饰器，按请求 hash 缓存响应 |
+| **缓存** | 路由层添加缓存装饰器 |
