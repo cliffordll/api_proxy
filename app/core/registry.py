@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.core.protocols import BaseClient, BaseConverter
+from app.core.client import BaseClient
+from app.core.converter import BaseConverter
 
 
 @dataclass

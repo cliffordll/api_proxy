@@ -1,16 +1,17 @@
 """Registry 单元测试"""
 
 import pytest
-from app.core.protocols import BaseClient, BaseConverter
+from app.core.client import BaseClient
+from app.core.converter import BaseConverter
 from app.core.registry import ProviderRegistry, ProviderEntry
 
 
-class FakeClient:
+class FakeClient(BaseClient):
     async def send(self, params: dict, api_key: str, stream: bool = False):
         return {}
 
 
-class FakeConverter:
+class FakeConverter(BaseConverter):
     def convert_request(self, request: dict) -> dict:
         return request
 

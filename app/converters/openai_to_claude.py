@@ -8,9 +8,10 @@ import uuid
 from typing import Any
 
 from app.core.config import get_settings, map_model
+from app.core.converter import BaseConverter
 
 
-class OpenAIToClaudeConverter:
+class OpenAIToClaudeConverter(BaseConverter):
     """实现 BaseConverter 接口：OpenAI 格式 → Claude 格式。"""
 
     # ── 请求转换 ───────────────────────────────────────────────
