@@ -50,15 +50,18 @@
 
 | # | 任务 | 说明 | 产出文件 | 状态 |
 |---|------|------|---------|------|
-| 3.1 | 实现 ClaudeClient 类 | 封装 `anthropic.AsyncAnthropic`，非流式返回 `Message`，流式返回 `MessageStream` | `app/clients/claude_client.py` | 待开始 |
-| 3.2 | 实现 OpenAIClient 类 | 封装 `openai.AsyncOpenAI`，非流式返回 `ChatCompletion`，流式返回 `AsyncStream[ChatCompletionChunk]` | `app/clients/openai_client.py` | 待开始 |
-| 3.3 | 删除遗留文件 | 删除 `app/clients/openai_sdk_client.py` | — | 待开始 |
+| 3.1 | 实现 ClaudeClient 类 | 封装 `anthropic.AsyncAnthropic`，非流式返回 `Message`，流式返回 `MessageStream` | `app/clients/claude_client.py` | 完成 |
+| 3.2 | 实现 OpenAIClient 类 | 封装 `openai.AsyncOpenAI`，非流式返回 `ChatCompletion`，流式返回 `AsyncStream[ChatCompletionChunk]` | `app/clients/openai_client.py` | 完成 |
+| 3.3 | 删除遗留文件 | 删除 `app/clients/openai_sdk_client.py` | — | 完成 |
 
 **验收**：两个客户端类通过 `isinstance(client, BaseClient)` 检查
 
 **执行记录**：
 
-> 待填写
+- 3.1：ClaudeClient 类，构造函数接收 `base_url`，`send()` 内部创建 `AsyncAnthropic` 客户端，非流式调用 `client.messages.create()`，流式调用 `client.messages.stream()` 返回上下文管理器
+- 3.2：OpenAIClient 类，构造函数接收 `base_url`，`send()` 内部创建 `AsyncOpenAI` 客户端，非流式/流式均调用 `client.chat.completions.create()`
+- 3.3：删除 `app/clients/openai_sdk_client.py`
+- 验收：`isinstance(ClaudeClient(...), BaseClient)` 和 `isinstance(OpenAIClient(...), BaseClient)` 均为 True，**通过**
 
 ---
 
