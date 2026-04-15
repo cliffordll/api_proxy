@@ -7,7 +7,7 @@ import time
 import uuid
 from typing import Any
 
-from app.config import get_settings, map_model
+from app.core.config import get_settings, map_model
 
 
 # ── 请求转换 ───────────────────────────────────────────────

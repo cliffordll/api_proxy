@@ -1,7 +1,7 @@
 import uvicorn
 from fastapi import FastAPI
 
-from app.config import get_settings
+from app.core.config import get_settings
 from app.routes.openai_compat import router as openai_router
 from app.routes.claude_compat import router as claude_router
 

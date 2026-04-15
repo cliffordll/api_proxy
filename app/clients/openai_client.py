@@ -6,7 +6,7 @@ from typing import AsyncIterator
 
 import httpx
 
-from app.config import get_settings
+from app.core.config import get_settings
 
 _client: httpx.AsyncClient | None = None
 

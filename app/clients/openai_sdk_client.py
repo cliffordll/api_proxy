@@ -7,7 +7,7 @@ from typing import AsyncIterator
 
 from openai import AsyncOpenAI, APIConnectionError, APITimeoutError, APIStatusError
 
-from app.config import get_settings
+from app.core.config import get_settings
 
 
 async def send(request_body: dict, api_key: str, stream: bool = False) -> dict | AsyncIterator[str]:
