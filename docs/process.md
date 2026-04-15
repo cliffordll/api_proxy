@@ -92,15 +92,18 @@
 
 | # | 任务 | 说明 | 产出文件 | 状态 |
 |---|------|------|---------|------|
-| 5.1 | Provider 注册 | `main.py` 启动时创建客户端/转换器实例，注册为 `"claude"` 和 `"openai"` Provider | `main.py` | 待开始 |
-| 5.2 | 重写 OpenAI 兼容路由 | 从 Registry 获取 `"claude"` Provider 调度 | `app/routes/openai_compat.py` | 待开始 |
-| 5.3 | 重写 Claude 兼容路由 | 从 Registry 获取 `"openai"` Provider 调度 | `app/routes/claude_compat.py` | 待开始 |
+| 5.1 | Provider 注册 | `main.py` 启动时创建客户端/转换器实例，注册为 `"claude"` 和 `"openai"` Provider | `main.py` | 完成 |
+| 5.2 | 重写 OpenAI 兼容路由 | 从 Registry 获取 `"claude"` Provider 调度 | `app/routes/openai_compat.py` | 完成 |
+| 5.3 | 重写 Claude 兼容路由 | 从 Registry 获取 `"openai"` Provider 调度 | `app/routes/claude_compat.py` | 完成 |
 
 **验收**：`python main.py` 启动，`GET /health` 返回 200，两个端点非流式和流式均正常
 
 **执行记录**：
 
-> 待填写
+- 5.1：`main.py` 使用 `@app.on_event("startup")` 注册两个 Provider：`"claude"`（ClaudeClient + OpenAIToClaudeConverter）和 `"openai"`（OpenAIClient + ClaudeToOpenAIConverter）
+- 5.2：`openai_compat.py` 通过 `registry.get("claude")` 获取 Provider，非流式直接调用；流式使用 `async with client.send(..., stream=True) as stream_resp` 上下文管理器
+- 5.3：`claude_compat.py` 通过 `registry.get("openai")` 获取 Provider，流式使用 `await client.send(..., stream=True)` 返回 AsyncStream，结束后调用 `convert_stream_done(state)`
+- 验收：Health check 200、缺少 Key 401 均正确，**通过**
 
 ---
 

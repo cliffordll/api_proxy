@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-import httpx
-from openai import APIConnectionError, APITimeoutError, APIStatusError
 from fastapi import APIRouter, Header, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from app.clients import openai_sdk_client as openai_client
-from app.converters import claude_to_openai
+from app.core.registry import registry
 
 router = APIRouter()
 
@@ -25,15 +22,10 @@ async def messages(
     request: Request,
     x_api_key: str | None = Header(None, alias="x-api-key"),
 ):
-    print(f"[DEBUG] /v1/messages headers: {dict(request.headers)}")
-    print(f"[DEBUG] x_api_key: {x_api_key}")
-
     try:
         body = await request.json()
     except Exception:
         return _claude_error(400, "invalid_request_error", "Invalid JSON in request body")
-
-    print(f"[DEBUG] /v1/messages body: {body}")
 
     api_key = x_api_key or body.pop("api_key", None)
     if not api_key:
@@ -41,27 +33,30 @@ async def messages(
 
     stream = body.get("stream", False)
 
+    provider = registry.get("openai")
+
     try:
-        openai_req = claude_to_openai.convert_request(body)
-        result = await openai_client.send(openai_req, api_key=api_key, stream=stream)
-    except APIConnectionError as e:
-        return _claude_error(502, "api_error", f"Failed to connect to upstream API: {e}")
-    except APITimeoutError:
-        return _claude_error(504, "api_error", "Upstream API request timed out")
-    except APIStatusError as e:
-        return _claude_error(e.status_code, "api_error", e.message)
-    except (KeyError, ValueError) as e:
-        return _claude_error(400, "invalid_request_error", f"Invalid request: {e}")
+        openai_req = provider.request_converter.convert_request(body)
 
-    if not stream:
-        claude_resp = claude_to_openai.convert_response(result)
-        return JSONResponse(content=claude_resp)
+        if not stream:
+            result = await provider.client.send(openai_req, api_key=api_key, stream=False)
+            claude_resp = provider.response_converter.convert_response(result)
+            return JSONResponse(content=claude_resp)
 
-    async def generate():
-        state = {}
-        async for sse_line in result:
-            lines = claude_to_openai.convert_stream_event(sse_line, state)
-            for line in lines:
+        # 流式
+        async def generate():
+            state = {}
+            stream_resp = await provider.client.send(openai_req, api_key=api_key, stream=True)
+            async for chunk in stream_resp:
+                lines = provider.response_converter.convert_stream_event(chunk, state)
+                for line in lines:
+                    yield line
+            # 流结束事件
+            done_lines = provider.response_converter.convert_stream_done(state)
+            for line in done_lines:
                 yield line
 
-    return StreamingResponse(generate(), media_type="text/event-stream")
+        return StreamingResponse(generate(), media_type="text/event-stream")
+
+    except (KeyError, ValueError) as e:
+        return _claude_error(400, "invalid_request_error", f"Invalid request: {e}")
