@@ -69,8 +69,8 @@
 
 | # | 任务 | 说明 | 产出文件 | 状态 |
 |---|------|------|---------|------|
-| 4.1 | 实现 OpenAIToClaudeConverter | 请求：`dict` → `dict`；响应：`anthropic.types.Message` → `dict`；流式：`RawMessageStreamEvent` → `list[str]` | `app/converters/openai_to_claude.py` | 待开始 |
-| 4.2 | 实现 ClaudeToOpenAIConverter | 请求：`dict` → `dict`；响应：`ChatCompletion` → `dict`；流式：`ChatCompletionChunk` → `list[str]` | `app/converters/claude_to_openai.py` | 待开始 |
+| 4.1 | 实现 OpenAIToClaudeConverter | 请求：`dict` → `dict`；响应：`anthropic.types.Message` → `dict`；流式：`RawMessageStreamEvent` → `list[str]` | `app/converters/openai_to_claude.py` | 完成 |
+| 4.2 | 实现 ClaudeToOpenAIConverter | 请求：`dict` → `dict`；响应：`ChatCompletion` → `dict`；流式：`ChatCompletionChunk` → `list[str]` | `app/converters/claude_to_openai.py` | 完成 |
 
 **改动要点**：
 - 模块级函数 → 类方法
@@ -82,7 +82,9 @@
 
 **执行记录**：
 
-> 待填写
+- 4.1：OpenAIToClaudeConverter 类，convert_request 逻辑不变；convert_response 输入改为 `anthropic.types.Message`（属性访问）；convert_stream_event 输入改为 `RawMessageStreamEvent`（属性访问）
+- 4.2：ClaudeToOpenAIConverter 类，convert_request 逻辑不变；convert_response 输入改为 `ChatCompletion`（属性访问）；convert_stream_event 输入改为 `ChatCompletionChunk`（属性访问）；新增 `convert_stream_done()` 方法处理流结束事件（原 `[DONE]` 逻辑从转换器移出）
+- 验收：`isinstance` 检查均为 True，**通过**
 
 ---
 
