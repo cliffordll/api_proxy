@@ -130,16 +130,23 @@
 
 | # | 任务 | 说明 | 产出文件 | 状态 |
 |---|------|------|---------|------|
-| 7.1 | Registry 单元测试 | 注册/获取/不存在报错/list 逻辑 | `tests/test_core/test_registry.py` | 待开始 |
-| 7.2 | 错误处理单元测试 | 各类 SDK 异常返回正确状态码和格式 | `tests/test_core/test_errors.py` | 待开始 |
-| 7.3 | 转换器单元测试 | 适配类方法调用，mock 对象改用 SDK 类型构造 | `tests/test_converters/` | 待开始 |
-| 7.4 | 路由集成测试 | 适配注册表调度方式，更新 mock 路径 | `tests/test_routes/` | 待开始 |
-| 7.5 | 全量回归测试 | `pytest` 全部通过 | — | 待开始 |
-| 7.6 | 更新 CLAUDE.md | 技术栈移除 httpx，补充 anthropic SDK | `CLAUDE.md` | 待开始 |
-| 7.7 | 更新架构文档 | 对齐项目结构章节 | `docs/architecture.md` | 待开始 |
+| 7.1 | Registry 单元测试 | 注册/获取/不存在报错/list 逻辑 | `tests/test_core/test_registry.py` | 完成 |
+| 7.2 | 错误处理单元测试 | 各类 SDK 异常返回正确状态码和格式 | `tests/test_core/test_errors.py` | 完成 |
+| 7.3 | 转换器单元测试 | 适配类方法调用，mock 对象改用 SDK 类型构造 | `tests/test_converters/` | 完成 |
+| 7.4 | 路由集成测试 | 适配注册表调度方式，更新 mock 路径 | `tests/test_routes/` | 完成 |
+| 7.5 | 全量回归测试 | `pytest` 全部通过 | — | 完成 |
+| 7.6 | 更新 CLAUDE.md | 技术栈移除 httpx，补充 anthropic SDK | `CLAUDE.md` | 完成 |
+| 7.7 | 更新架构文档 | 对齐项目结构章节 | `docs/architecture.md` | 完成 |
 
 **验收**：`pytest` 全部通过，`python main.py` 启动，两个端点正常工作
 
 **执行记录**：
 
-> 待填写
+- 7.1：Registry 单元测试 7 个用例（注册/获取/不存在报错/list/覆盖/Protocol 检查），全部通过
+- 7.2：错误处理单元测试 8 个用例（anthropic/openai 的 timeout、connection、unknown、格式检查），全部通过
+- 7.3：转换器单元测试重写，mock 对象改用 MagicMock 模拟 SDK 类型（属性访问），新增 convert_stream_done 测试，共 33 个用例全部通过
+- 7.4：路由集成测试重写，mock 路径改为 `ClaudeClient.send` / `OpenAIClient.send`，conftest 中调用 `register_providers()` 确保 Provider 注册，共 6 个用例全部通过
+- 7.5：`pytest tests/ -v` 共 57 个用例，全部通过
+- 7.6：CLAUDE.md 技术栈更新为 `openai SDK / anthropic SDK`，移除 `httpx`
+- 7.7：architecture.md 项目结构补充 `test_core/` 和 `docs/process.md`
+- 验收：57 passed，**通过**

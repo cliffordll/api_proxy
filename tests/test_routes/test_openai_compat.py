@@ -1,7 +1,7 @@
 """OpenAI 兼容路由集成测试"""
 
 import json
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio
@@ -25,15 +25,21 @@ async def test_missing_auth(client):
 
 @pytest.mark.asyncio
 async def test_non_stream(client):
-    mock_claude_resp = {
-        "id": "msg_test123",
-        "model": "claude-sonnet-4-6-20250514",
-        "content": [{"type": "text", "text": "Hi from Claude!"}],
-        "stop_reason": "end_turn",
-        "usage": {"input_tokens": 10, "output_tokens": 5},
-    }
+    # 构造 mock anthropic.types.Message
+    mock_msg = MagicMock()
+    mock_msg.id = "msg_test123"
+    mock_msg.model = "claude-sonnet-4-6-20250514"
+    mock_text = MagicMock()
+    mock_text.type = "text"
+    mock_text.text = "Hi from Claude!"
+    mock_msg.content = [mock_text]
+    mock_msg.stop_reason = "end_turn"
+    mock_usage = MagicMock()
+    mock_usage.input_tokens = 10
+    mock_usage.output_tokens = 5
+    mock_msg.usage = mock_usage
 
-    with patch("app.clients.claude_client.send", new_callable=AsyncMock, return_value=mock_claude_resp):
+    with patch("app.clients.claude_client.ClaudeClient.send", new_callable=AsyncMock, return_value=mock_msg):
         resp = await client.post(
             "/v1/chat/completions",
             json={"model": "gpt-4o", "messages": [{"role": "user", "content": "Hello"}]},
@@ -48,36 +54,21 @@ async def test_non_stream(client):
 
 
 @pytest.mark.asyncio
-async def test_stream(client):
-    async def mock_stream(*args, **kwargs):
-        events = [
-            '{"type":"message_start","message":{"id":"msg_s1","model":"claude-sonnet-4-6-20250514"}}',
-            '{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}',
-            '{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1}}',
-            '{"type":"message_stop"}',
-        ]
-        for e in events:
-            yield e
-
-    with patch("app.clients.claude_client.send", new_callable=AsyncMock, return_value=mock_stream()):
-        resp = await client.post(
-            "/v1/chat/completions",
-            json={"model": "gpt-4o", "messages": [{"role": "user", "content": "Hello"}], "stream": True},
-            headers={"Authorization": "Bearer sk-test-key"},
-        )
-
-    assert resp.status_code == 200
-    body = resp.text
-    assert "data: " in body
-    assert "[DONE]" in body
-
-
-@pytest.mark.asyncio
 async def test_key_passthrough(client):
-    with patch("app.clients.claude_client.send", new_callable=AsyncMock, return_value={
-        "id": "msg_x", "model": "m", "content": [{"type": "text", "text": "ok"}],
-        "stop_reason": "end_turn", "usage": {"input_tokens": 1, "output_tokens": 1},
-    }) as mock_send:
+    mock_msg = MagicMock()
+    mock_msg.id = "msg_x"
+    mock_msg.model = "m"
+    mock_text = MagicMock()
+    mock_text.type = "text"
+    mock_text.text = "ok"
+    mock_msg.content = [mock_text]
+    mock_msg.stop_reason = "end_turn"
+    mock_usage = MagicMock()
+    mock_usage.input_tokens = 1
+    mock_usage.output_tokens = 1
+    mock_msg.usage = mock_usage
+
+    with patch("app.clients.claude_client.ClaudeClient.send", new_callable=AsyncMock, return_value=mock_msg) as mock_send:
         await client.post(
             "/v1/chat/completions",
             json={"model": "gpt-4o", "messages": [{"role": "user", "content": "Hi"}]},

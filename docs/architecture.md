@@ -491,7 +491,8 @@ api_proxy/
 ├── .env.example
 ├── docs/
 │   ├── architecture.md          # 本文档
-│   └── feature.md               # 开发计划
+│   ├── feature.md               # 开发计划
+│   └── process.md               # 开发过程记录
 ├── app/
 │   ├── __init__.py
 │   ├── core/
@@ -515,6 +516,10 @@ api_proxy/
 └── tests/
     ├── __init__.py
     ├── conftest.py
+    ├── test_core/
+    │   ├── __init__.py
+    │   ├── test_registry.py
+    │   └── test_errors.py
     ├── test_converters/
     │   ├── __init__.py
     │   ├── test_openai_to_claude.py

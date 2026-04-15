@@ -2,7 +2,7 @@
 
 ## 技术栈
 
-- Python 3.11+ / FastAPI / httpx / pydantic-settings / pyyaml
+- Python 3.11+ / FastAPI / openai SDK / anthropic SDK / pydantic-settings / pyyaml
 - 测试: pytest + pytest-asyncio
 
 ## 编码规范
