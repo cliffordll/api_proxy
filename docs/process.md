@@ -2,9 +2,7 @@
 
 ---
 
-## 任务计划
-
-### Phase 1：依赖更新与目录重构
+## Phase 1：依赖更新与目录重构
 
 | # | 任务 | 说明 | 产出文件 | 状态 |
 |---|------|------|---------|------|
@@ -12,13 +10,22 @@
 | 1.2 | 删除 models 目录 | 删除 `app/models/` 整个目录 | — | 完成 |
 | 1.3 | 创建 core 目录 | 创建 `app/core/` 及 `__init__.py` | `app/core/__init__.py` | 完成 |
 | 1.4 | 迁移 config.py | `app/config.py` → `app/core/config.py` | `app/core/config.py` | 完成 |
-| 1.5 | 更新全局引用 | `from app.config` → `from app.core.config`（6处：`main.py`、`claude_client.py`、`openai_client.py`、`openai_sdk_client.py`、`openai_to_claude.py`、`claude_to_openai.py`） | 多文件 | 完成 |
+| 1.5 | 更新全局引用 | `from app.config` → `from app.core.config`（6处） | 多文件 | 完成 |
 
 **验收**：`python -c "from app.core.config import get_settings; print('ok')"` 正常
 
+**执行记录**：
+
+- 1.1：`requirements.txt` 添加 `anthropic>=0.49.0`，移除 `httpx>=0.27.0` 和 `httpx[http2]>=0.27.0`
+- 1.2：删除 `app/models/` 整个目录（含 `__init__.py`、`openai_models.py`、`claude_models.py`、`__pycache__/`），无代码引用 `app.models`
+- 1.3：创建 `app/core/` 目录及空 `__init__.py`
+- 1.4：`app/config.py` → `app/core/config.py`，内容不变
+- 1.5：6 处引用更新（main.py、claude_client.py、openai_client.py、openai_sdk_client.py、openai_to_claude.py、claude_to_openai.py）
+- 验收：`python -c "from app.core.config import get_settings; print('ok')"` 输出 `ok`，**通过**
+
 ---
 
-### Phase 2：抽象接口与注册表
+## Phase 2：抽象接口与注册表
 
 | # | 任务 | 说明 | 产出文件 | 状态 |
 |---|------|------|---------|------|
@@ -29,9 +36,17 @@
 
 **验收**：Protocol 可被 `isinstance` 检查，Registry 注册/获取/不存在报错逻辑正确
 
+**执行记录**：
+
+- 2.1：使用 `typing.Protocol` + `@runtime_checkable`，声明 `send(params, api_key, stream)` 方法
+- 2.2：声明 `convert_request()`、`convert_response()`、`convert_stream_event()` 三个方法
+- 2.3：`@dataclass`，包含 `client`、`request_converter`、`response_converter` 三个字段
+- 2.4：`register()`、`get()`（不存在时抛 KeyError）、`list_providers()` 方法，模块级 `registry` 全局实例
+- 验收：Registry 注册/获取/不存在报错/list 逻辑全部通过，**通过**
+
 ---
 
-### Phase 3：客户端层重写
+## Phase 3：客户端层重写
 
 | # | 任务 | 说明 | 产出文件 | 状态 |
 |---|------|------|---------|------|
@@ -41,9 +56,13 @@
 
 **验收**：两个客户端类通过 `isinstance(client, BaseClient)` 检查
 
+**执行记录**：
+
+> 待填写
+
 ---
 
-### Phase 4：转换层重写
+## Phase 4：转换层重写
 
 | # | 任务 | 说明 | 产出文件 | 状态 |
 |---|------|------|---------|------|
@@ -58,9 +77,13 @@
 
 **验收**：两个转换器类通过 `isinstance(converter, BaseConverter)` 检查
 
+**执行记录**：
+
+> 待填写
+
 ---
 
-### Phase 5：路由层适配与 Provider 注册
+## Phase 5：路由层适配与 Provider 注册
 
 | # | 任务 | 说明 | 产出文件 | 状态 |
 |---|------|------|---------|------|
@@ -70,9 +93,13 @@
 
 **验收**：`python main.py` 启动，`GET /health` 返回 200，两个端点非流式和流式均正常
 
+**执行记录**：
+
+> 待填写
+
 ---
 
-### Phase 6：错误处理
+## Phase 6：错误处理
 
 | # | 任务 | 说明 | 产出文件 | 状态 |
 |---|------|------|---------|------|
@@ -82,9 +109,13 @@
 
 **验收**：模拟各类 SDK 异常，返回正确的状态码和错误格式
 
+**执行记录**：
+
+> 待填写
+
 ---
 
-### Phase 7：测试与收尾
+## Phase 7：测试与收尾
 
 | # | 任务 | 说明 | 产出文件 | 状态 |
 |---|------|------|---------|------|
@@ -98,52 +129,6 @@
 
 **验收**：`pytest` 全部通过，`python main.py` 启动，两个端点正常工作
 
----
+**执行记录**：
 
-## 执行记录
-
-> 以下内容在开发过程中逐步填写
-
-### Phase 1 执行记录
-
-#### 1.1 更新依赖清单
-- **实现说明**：`requirements.txt` 添加 `anthropic>=0.49.0`，移除 `httpx>=0.27.0` 和 `httpx[http2]>=0.27.0`
-- **测试结果**：待验证
-
-#### 1.2 删除 models 目录
-- **实现说明**：删除 `app/models/` 整个目录（含 `__init__.py`、`openai_models.py`、`claude_models.py`、`__pycache__/`）
-- **测试结果**：已删除，无代码引用 `app.models`
-
-#### 1.3 创建 core 目录
-- **实现说明**：创建 `app/core/` 目录及空 `__init__.py`
-
-#### 1.4 迁移 config.py
-- **实现说明**：`app/config.py` → `app/core/config.py`，内容不变
-
-#### 1.5 更新全局引用
-- **实现说明**：6 处 `from app.config` → `from app.core.config`（main.py、claude_client.py、openai_client.py、openai_sdk_client.py、openai_to_claude.py、claude_to_openai.py）
-- **测试数据**：`python -c "from app.core.config import get_settings; print('ok')"`
-- **测试结果**：输出 `ok`，通过
-
-#### Phase 1 验收结论
-- **状态**：通过
-- **说明**：依赖已更新，models 已删除，config 已迁移到 core，所有引用已更新
-
-### Phase 2 执行记录
-
-#### 2.1 定义 BaseClient Protocol
-- **实现说明**：使用 `typing.Protocol` + `@runtime_checkable`，声明 `send(params, api_key, stream)` 方法
-
-#### 2.2 定义 BaseConverter Protocol
-- **实现说明**：声明 `convert_request()`、`convert_response()`、`convert_stream_event()` 三个方法
-
-#### 2.3 实现 ProviderEntry
-- **实现说明**：`@dataclass`，包含 `client`、`request_converter`、`response_converter` 三个字段
-
-#### 2.4 实现 ProviderRegistry
-- **实现说明**：`register()`、`get()`（不存在时抛 KeyError）、`list_providers()` 方法，模块级 `registry` 全局实例
-
-#### Phase 2 验收结论
-- **状态**：通过
-- **测试数据**：Registry 注册/获取/不存在报错/list 逻辑
-- **测试结果**：全部通过
+> 待填写
