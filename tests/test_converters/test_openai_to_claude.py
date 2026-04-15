@@ -236,55 +236,61 @@ def _mock_stream_event(event_type, **kwargs):
     return event
 
 
+def _init_stream(converter):
+    """发送 message_start 事件初始化流式状态"""
+    msg = MagicMock()
+    msg.id = "msg_001"
+    msg.model = "claude-sonnet-4-6-20250514"
+    event = _mock_stream_event("message_start", message=msg)
+    converter.convert_stream_event(event)
+
+
 class TestConvertStreamEvent:
     def test_message_start(self, converter):
         msg = MagicMock()
         msg.id = "msg_001"
         msg.model = "claude-sonnet-4-6-20250514"
         event = _mock_stream_event("message_start", message=msg)
-        state = {}
-        results = converter.convert_stream_event(event, state)
+        results = converter.convert_stream_event(event)
         assert len(results) == 1
         assert isinstance(results[0], ChatCompletionChunk)
         assert results[0].choices[0].delta.role == "assistant"
 
     def test_text_delta(self, converter):
+        _init_stream(converter)
         delta = MagicMock()
         delta.type = "text_delta"
         delta.text = "Hello"
         event = _mock_stream_event("content_block_delta", delta=delta)
-        state = {"id": "chatcmpl-001", "model": "m"}
-        results = converter.convert_stream_event(event, state)
+        results = converter.convert_stream_event(event)
         assert len(results) == 1
         assert isinstance(results[0], ChatCompletionChunk)
         assert results[0].choices[0].delta.content == "Hello"
 
     def test_tool_use_stream(self, converter):
+        _init_stream(converter)
         block = MagicMock()
         block.type = "tool_use"
         block.id = "tu_1"
         block.name = "get_weather"
         event = _mock_stream_event("content_block_start", content_block=block)
-        state = {"id": "chatcmpl-001", "model": "m", "tool_call_index": -1}
-        results = converter.convert_stream_event(event, state)
+        results = converter.convert_stream_event(event)
         assert len(results) == 1
         assert isinstance(results[0], ChatCompletionChunk)
         assert results[0].choices[0].delta.tool_calls[0].function.name == "get_weather"
 
     def test_message_stop(self, converter):
         event = _mock_stream_event("message_stop")
-        state = {}
-        results = converter.convert_stream_event(event, state)
+        results = converter.convert_stream_event(event)
         assert results == []
-        assert state.get("done") is True
 
     def test_message_delta_stop_reason(self, converter):
+        _init_stream(converter)
         delta = MagicMock()
         delta.stop_reason = "end_turn"
         usage = MagicMock()
         usage.output_tokens = 42
         event = _mock_stream_event("message_delta", delta=delta, usage=usage)
-        state = {"id": "chatcmpl-001", "model": "m"}
-        results = converter.convert_stream_event(event, state)
+        results = converter.convert_stream_event(event)
         assert isinstance(results[0], ChatCompletionChunk)
         assert results[0].choices[0].finish_reason == "stop"

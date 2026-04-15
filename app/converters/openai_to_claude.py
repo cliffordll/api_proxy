@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import time
 import uuid
+from contextvars import ContextVar
 from typing import Any
 
 from openai.types.chat import (
@@ -28,6 +29,18 @@ from app.core.converter import BaseConverter
 
 class OpenAIToClaudeConverter(BaseConverter[dict, Message, RawMessageStreamEvent]):
     """OpenAI 格式请求 → Claude 格式请求，Claude 响应 → OpenAI 响应。"""
+
+    _state_var: ContextVar[dict] = ContextVar('o2c_stream_state')
+
+    @property
+    def _stream_state(self) -> dict:
+        """获取当前请求的流式状态，首次访问自动初始化。"""
+        try:
+            return self._state_var.get()
+        except LookupError:
+            state: dict = {}
+            self._state_var.set(state)
+            return state
 
     # ── 请求转换 ───────────────────────────────────────────────
 
@@ -158,8 +171,9 @@ class OpenAIToClaudeConverter(BaseConverter[dict, Message, RawMessageStreamEvent
 
     # ── 流式事件转换 ──────────────────────────────────────────
 
-    def convert_stream_event(self, event: RawMessageStreamEvent, state: dict) -> list[ChatCompletionChunk]:
+    def convert_stream_event(self, event: RawMessageStreamEvent) -> list[ChatCompletionChunk]:
         """anthropic RawMessageStreamEvent -> list[ChatCompletionChunk]"""
+        state = self._stream_state
         event_type = event.type
         results: list[ChatCompletionChunk] = []
 

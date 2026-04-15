@@ -48,14 +48,13 @@ async def messages(
 
         # 流式
         async def generate():
-            state = {}
             stream_resp = await provider.client.send(openai_req, api_key=api_key, stream=True)
             async for chunk in stream_resp:
-                lines = provider.response_converter.convert_stream_event(chunk, state)
+                lines = provider.response_converter.convert_stream_event(chunk)
                 for line in lines:
                     yield line
             # 流结束事件
-            done_lines = provider.response_converter.convert_stream_done(state)
+            done_lines = provider.response_converter.convert_stream_done()
             for line in done_lines:
                 yield line
 

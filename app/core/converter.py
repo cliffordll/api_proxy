@@ -24,6 +24,6 @@ class BaseConverter(ABC, Generic[TRequest, TResponse, TEvent]):
         ...
 
     @abstractmethod
-    def convert_stream_event(self, event: TEvent, state: dict) -> list:
-        """将目标协议流式事件转换为源协议流式事件列表。"""
+    def convert_stream_event(self, event: TEvent) -> list:
+        """将目标协议流式事件转换为源协议流式事件列表。内部自动管理流式状态。"""
         ...

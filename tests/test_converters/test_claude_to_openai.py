@@ -225,27 +225,33 @@ def _mock_chunk(id="chatcmpl-001", model="gpt-4o", content=None, tool_calls=None
     return chunk
 
 
+def _init_c2o_stream(converter):
+    """发送首个 chunk 初始化流式状态"""
+    chunk = _mock_chunk()
+    chunk.choices[0].delta.content = None
+    chunk.choices[0].delta.tool_calls = None
+    converter.convert_stream_event(chunk)
+
+
 class TestConvertStreamEvent:
     def test_first_chunk_generates_message_start(self, converter):
-        state = {}
         chunk = _mock_chunk()
         chunk.choices[0].delta.content = None
         chunk.choices[0].delta.tool_calls = None
-        results = converter.convert_stream_event(chunk, state)
+        results = converter.convert_stream_event(chunk)
         assert any("message_start" in r for r in results)
         assert any("content_block_start" in r for r in results)
-        assert state["started"] is True
 
     def test_text_delta(self, converter):
-        state = {"started": True, "content_block_index": 0, "content_block_open": True, "current_tool_index": -1}
+        _init_c2o_stream(converter)
         chunk = _mock_chunk(content="Hello")
         chunk.choices[0].delta.tool_calls = None
         chunk.choices[0].finish_reason = None
-        results = converter.convert_stream_event(chunk, state)
+        results = converter.convert_stream_event(chunk)
         assert any("text_delta" in r for r in results)
 
     def test_tool_call_stream(self, converter):
-        state = {"started": True, "content_block_index": 0, "content_block_open": True, "current_tool_index": -1}
+        _init_c2o_stream(converter)
 
         tc = MagicMock()
         tc.index = 0
@@ -259,22 +265,27 @@ class TestConvertStreamEvent:
         chunk.choices[0].delta.tool_calls = [tc]
         chunk.choices[0].finish_reason = None
 
-        results = converter.convert_stream_event(chunk, state)
+        results = converter.convert_stream_event(chunk)
         assert any("content_block_start" in r and "tool_use" in r for r in results)
 
-    def test_non_empty_choices(self, converter):
-        state = {}
-        chunk = _mock_chunk()
-        chunk.choices[0].delta.content = None
-        chunk.choices[0].delta.tool_calls = None
-        results = converter.convert_stream_event(chunk, state)
-        assert len(results) > 0
+    def test_first_chunk_has_results(self, converter):
+        """与 test_first_chunk_generates_message_start 验证同一场景，确保首个 chunk 有输出"""
+        # 此场景已被 test_first_chunk_generates_message_start 覆盖
 
 
 class TestConvertStreamDone:
     def test_generates_stop_events(self, converter):
-        state = {"content_block_open": True, "content_block_index": 0, "stop_reason": "end_turn", "output_tokens": 10}
-        results = converter.convert_stream_done(state)
+        # 先初始化流式状态并模拟 finish_reason
+        _init_c2o_stream(converter)
+        finish_chunk = _mock_chunk()
+        finish_chunk.choices[0].delta.content = None
+        finish_chunk.choices[0].delta.tool_calls = None
+        finish_chunk.choices[0].finish_reason = "stop"
+        finish_chunk.usage = None
+        converter.convert_stream_event(finish_chunk)
+
+        results = converter.convert_stream_done()
         assert any("content_block_stop" in r for r in results)
         assert any("message_delta" in r for r in results)
+        assert any("message_stop" in r for r in results)
         assert any("message_stop" in r for r in results)

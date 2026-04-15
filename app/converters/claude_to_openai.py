@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import time
 import uuid
+from contextvars import ContextVar
 from typing import Any
 
 from openai.types.chat import ChatCompletion, ChatCompletionChunk
@@ -16,6 +17,18 @@ from app.core.converter import BaseConverter
 
 class ClaudeToOpenAIConverter(BaseConverter[dict, ChatCompletion, ChatCompletionChunk]):
     """Claude 格式请求 → OpenAI 格式请求，OpenAI 响应 → Claude 响应。"""
+
+    _state_var: ContextVar[dict] = ContextVar('c2o_stream_state')
+
+    @property
+    def _stream_state(self) -> dict:
+        """获取当前请求的流式状态，首次访问自动初始化。"""
+        try:
+            return self._state_var.get()
+        except LookupError:
+            state: dict = {}
+            self._state_var.set(state)
+            return state
 
     # ── 请求转换 ───────────────────────────────────────────────
 
@@ -144,11 +157,12 @@ class ClaudeToOpenAIConverter(BaseConverter[dict, ChatCompletion, ChatCompletion
 
     # ── 流式事件转换 ──────────────────────────────────────────
 
-    def convert_stream_event(self, chunk: ChatCompletionChunk, state: dict) -> list[str]:
+    def convert_stream_event(self, chunk: ChatCompletionChunk) -> list[str]:
         """
         openai.types.chat.ChatCompletionChunk -> Claude SSE event 行列表。
         Claude SSE 协议无对应 SDK 类型，仍返回 list[str]。
         """
+        state = self._stream_state
         results: list[str] = []
 
         choices = chunk.choices or []
@@ -231,8 +245,9 @@ class ClaudeToOpenAIConverter(BaseConverter[dict, ChatCompletion, ChatCompletion
 
         return results
 
-    def convert_stream_done(self, state: dict) -> list[str]:
+    def convert_stream_done(self) -> list[str]:
         """生成流结束时的 Claude SSE 事件。"""
+        state = self._stream_state
         results: list[str] = []
 
         if state.get("content_block_open"):
