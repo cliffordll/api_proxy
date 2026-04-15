@@ -111,15 +111,18 @@
 
 | # | 任务 | 说明 | 产出文件 | 状态 |
 |---|------|------|---------|------|
-| 6.1 | 实现错误处理工具函数 | `handle_anthropic_error(e)` 和 `handle_openai_error(e)`，返回 `(status_code, error_body)` | `app/core/errors.py` | 待开始 |
-| 6.2 | OpenAI 兼容路由接入 | 捕获 `anthropic.*Error`，转换为 OpenAI 错误格式 | `app/routes/openai_compat.py` | 待开始 |
-| 6.3 | Claude 兼容路由接入 | 捕获 `openai.*Error`，转换为 Claude 错误格式 | `app/routes/claude_compat.py` | 待开始 |
+| 6.1 | 实现错误处理工具函数 | `handle_anthropic_error(e)` 和 `handle_openai_error(e)`，返回 `(status_code, error_body)` | `app/core/errors.py` | 完成 |
+| 6.2 | OpenAI 兼容路由接入 | 捕获 `anthropic.*Error`，转换为 OpenAI 错误格式 | `app/routes/openai_compat.py` | 完成 |
+| 6.3 | Claude 兼容路由接入 | 捕获 `openai.*Error`，转换为 Claude 错误格式 | `app/routes/claude_compat.py` | 完成 |
 
 **验收**：模拟各类 SDK 异常，返回正确的状态码和错误格式
 
 **执行记录**：
 
-> 待填写
+- 6.1：`errors.py` 实现 `handle_anthropic_error` 和 `handle_openai_error`，内部通过 `_classify_*` 函数按异常类型映射状态码和错误格式（AuthenticationError→401, RateLimitError→429, BadRequestError→400, APITimeoutError→504, APIConnectionError→502, InternalServerError→502）
+- 6.2：`openai_compat.py` 添加 `except anthropic.APIError` 捕获，调用 `handle_anthropic_error` 转换为 OpenAI 错误格式
+- 6.3：`claude_compat.py` 添加 `except openai.APIError` 捕获，调用 `handle_openai_error` 转换为 Claude 错误格式
+- 验收：APITimeoutError→504、APIConnectionError→502 映射正确，**通过**
 
 ---
 

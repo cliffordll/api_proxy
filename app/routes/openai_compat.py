@@ -7,7 +7,10 @@ import json
 from fastapi import APIRouter, Header, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
+import anthropic
+
 from app.core.registry import registry
+from app.core.errors import handle_anthropic_error
 
 router = APIRouter()
 
@@ -64,5 +67,8 @@ async def chat_completions(
 
         return StreamingResponse(generate(), media_type="text/event-stream")
 
+    except anthropic.APIError as e:
+        status, body = handle_anthropic_error(e)
+        return JSONResponse(status_code=status, content=body)
     except (KeyError, ValueError) as e:
         return _openai_error(400, f"Invalid request: {e}", "invalid_request_error")

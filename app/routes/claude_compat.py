@@ -5,7 +5,10 @@ from __future__ import annotations
 from fastapi import APIRouter, Header, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
+import openai
+
 from app.core.registry import registry
+from app.core.errors import handle_openai_error
 
 router = APIRouter()
 
@@ -58,5 +61,8 @@ async def messages(
 
         return StreamingResponse(generate(), media_type="text/event-stream")
 
+    except openai.APIError as e:
+        status, body = handle_openai_error(e)
+        return JSONResponse(status_code=status, content=body)
     except (KeyError, ValueError) as e:
         return _claude_error(400, "invalid_request_error", f"Invalid request: {e}")
