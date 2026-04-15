@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+.env
+.claude/
+docs/architecture_v0.1.md
