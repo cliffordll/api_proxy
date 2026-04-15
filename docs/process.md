@@ -10,9 +10,9 @@
 |---|------|------|---------|------|
 | 1.1 | 更新依赖清单 | 添加 `anthropic>=0.49.0`，移除 `httpx` 和 `httpx[http2]` | `requirements.txt` | 完成 |
 | 1.2 | 删除 models 目录 | 删除 `app/models/` 整个目录 | — | 完成 |
-| 1.3 | 创建 core 目录 | 创建 `app/core/` 及 `__init__.py` | `app/core/__init__.py` | 待开始 |
-| 1.4 | 迁移 config.py | `app/config.py` → `app/core/config.py` | `app/core/config.py` | 待开始 |
-| 1.5 | 更新全局引用 | `from app.config` → `from app.core.config`（`main.py`、`claude_client.py`、`openai_to_claude.py`、`claude_to_openai.py`） | 多文件 | 待开始 |
+| 1.3 | 创建 core 目录 | 创建 `app/core/` 及 `__init__.py` | `app/core/__init__.py` | 完成 |
+| 1.4 | 迁移 config.py | `app/config.py` → `app/core/config.py` | `app/core/config.py` | 完成 |
+| 1.5 | 更新全局引用 | `from app.config` → `from app.core.config`（6处：`main.py`、`claude_client.py`、`openai_client.py`、`openai_sdk_client.py`、`openai_to_claude.py`、`claude_to_openai.py`） | 多文件 | 完成 |
 
 **验收**：`python -c "from app.core.config import get_settings; print('ok')"` 正常
 
@@ -22,10 +22,10 @@
 
 | # | 任务 | 说明 | 产出文件 | 状态 |
 |---|------|------|---------|------|
-| 2.1 | 定义 BaseClient Protocol | 声明 `send(params, api_key, stream)` 方法 | `app/core/protocols.py` | 待开始 |
-| 2.2 | 定义 BaseConverter Protocol | 声明 `convert_request()`、`convert_response()`、`convert_stream_event()` 方法 | `app/core/protocols.py` | 待开始 |
-| 2.3 | 实现 ProviderEntry | `dataclass`：client + request_converter + response_converter | `app/core/registry.py` | 待开始 |
-| 2.4 | 实现 ProviderRegistry | `register()`、`get()`、`list_providers()` 方法 | `app/core/registry.py` | 待开始 |
+| 2.1 | 定义 BaseClient Protocol | 声明 `send(params, api_key, stream)` 方法 | `app/core/protocols.py` | 完成 |
+| 2.2 | 定义 BaseConverter Protocol | 声明 `convert_request()`、`convert_response()`、`convert_stream_event()` 方法 | `app/core/protocols.py` | 完成 |
+| 2.3 | 实现 ProviderEntry | `dataclass`：client + request_converter + response_converter | `app/core/registry.py` | 完成 |
+| 2.4 | 实现 ProviderRegistry | `register()`、`get()`、`list_providers()` 方法 | `app/core/registry.py` | 完成 |
 
 **验收**：Protocol 可被 `isinstance` 检查，Registry 注册/获取/不存在报错逻辑正确
 
@@ -112,4 +112,38 @@
 
 #### 1.2 删除 models 目录
 - **实现说明**：删除 `app/models/` 整个目录（含 `__init__.py`、`openai_models.py`、`claude_models.py`、`__pycache__/`）
-- **测试结果**：已删除
+- **测试结果**：已删除，无代码引用 `app.models`
+
+#### 1.3 创建 core 目录
+- **实现说明**：创建 `app/core/` 目录及空 `__init__.py`
+
+#### 1.4 迁移 config.py
+- **实现说明**：`app/config.py` → `app/core/config.py`，内容不变
+
+#### 1.5 更新全局引用
+- **实现说明**：6 处 `from app.config` → `from app.core.config`（main.py、claude_client.py、openai_client.py、openai_sdk_client.py、openai_to_claude.py、claude_to_openai.py）
+- **测试数据**：`python -c "from app.core.config import get_settings; print('ok')"`
+- **测试结果**：输出 `ok`，通过
+
+#### Phase 1 验收结论
+- **状态**：通过
+- **说明**：依赖已更新，models 已删除，config 已迁移到 core，所有引用已更新
+
+### Phase 2 执行记录
+
+#### 2.1 定义 BaseClient Protocol
+- **实现说明**：使用 `typing.Protocol` + `@runtime_checkable`，声明 `send(params, api_key, stream)` 方法
+
+#### 2.2 定义 BaseConverter Protocol
+- **实现说明**：声明 `convert_request()`、`convert_response()`、`convert_stream_event()` 三个方法
+
+#### 2.3 实现 ProviderEntry
+- **实现说明**：`@dataclass`，包含 `client`、`request_converter`、`response_converter` 三个字段
+
+#### 2.4 实现 ProviderRegistry
+- **实现说明**：`register()`、`get()`（不存在时抛 KeyError）、`list_providers()` 方法，模块级 `registry` 全局实例
+
+#### Phase 2 验收结论
+- **状态**：通过
+- **测试数据**：Registry 注册/获取/不存在报错/list 逻辑
+- **测试结果**：全部通过
