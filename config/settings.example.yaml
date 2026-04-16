@@ -10,7 +10,6 @@ server:
   default_max_tokens: 4096           # 请求未指定 max_tokens 时的默认值
 
 # ── 模型映射 ──────────────────────────────────────────────────
-# 映射策略: 配置覆盖 → 内置默认 → 未命中透传
 
 mappings:
   openai_to_claude:
@@ -18,61 +17,50 @@ mappings:
     gpt-4-turbo: claude-sonnet-4-6-20250514
     gpt-4: claude-opus-4-6-20250514
     gpt-3.5-turbo: claude-haiku-4-5-20251001
-    # 自定义: gpt-4o-mini: claude-haiku-4-5-20251001
   claude_to_openai:
     claude-opus-4-6-20250514: gpt-4
     claude-sonnet-4-6-20250514: gpt-4o
     claude-haiku-4-5-20251001: gpt-3.5-turbo
 
-# ── Provider 配置 ────────────────────────────────────────────
+# ── 路由配置 ──────────────────────────────────────────────────
 #
 # 字段说明:
 #   path:      本代理暴露的路由路径
-#   base_url:  上游 API 地址（OpenAI SDK 需带 /v1，Anthropic SDK 不需要）
+#   base_url:  上游 API 地址
+#              - claude provider:  不带 /v1（如 https://api.anthropic.com）
+#              - openai/ollama:    需带 /v1（如 https://api.openai.com/v1、http://localhost:11434/v1）
+#              - httpx:            填完整基础地址，由 interface 决定路径
 #   provider:  客户端类型 — claude / openai / ollama / httpx / mockup
 #   interface: 上游接口类型 — messages / completions / responses
 #   converter: 转换器 — {输出格式}_from_{输入格式}
-#
-# 可用转换器:
-#   completions_from_messages    completions_from_responses
-#   messages_from_completions    messages_from_responses
-#   responses_from_messages      responses_from_completions
 
-completions:
-  path: /v1/chat/completions
-  base_url: https://api.anthropic.com
-  provider: claude
-  interface: messages
-  converter: completions_from_messages
+routes:
+  completions:
+    path: /v1/chat/completions
+    base_url: https://api.anthropic.com
+    provider: claude
+    interface: messages
+    converter: completions_from_messages
 
-responses:
-  path: /v1/responses
-  base_url: https://api.anthropic.com
-  provider: claude
-  interface: messages
-  converter: responses_from_messages
+  responses:
+    path: /v1/responses
+    base_url: https://api.anthropic.com
+    provider: claude
+    interface: messages
+    converter: responses_from_messages
+    
+  messages:
+    path: /v1/messages
+    base_url: https://api.openai.com/v1
+    provider: openai
+    interface: completions
+    converter: messages_from_completions
 
-messages:
-  path: /v1/messages
-  base_url: https://api.openai.com/v1
-  provider: openai
-  interface: completions
-  converter: messages_from_completions
+# ── 客户端配置 ────────────────────────────────────────────────
 
-# ── 扩展示例（取消注释替换上方对应段落即可）──────────────────────
-
-# Ollama 做 Messages 上游:
-# messages:
-#   path: /v1/messages
-#   base_url: http://localhost:11434/v1
-#   provider: ollama
-#   interface: completions
-#   converter: messages_from_completions
-
-# 调试模式（或直接用 settings.mockup.yaml）:
-# completions:
-#   path: /v1/chat/completions
-#   base_url: http://localhost
-#   provider: mockup
-#   interface: messages
-#   converter: completions_from_messages
+client:
+  base_url: http://localhost:8000
+  route: messages
+  model: claude-sonnet-4-6-20250514
+  # api_key: xxx
+  stream: true

@@ -85,12 +85,17 @@ def load_providers(config_path: str = "config/settings.yaml") -> None:
     else:
         config = DEFAULT_CONFIG.copy()
 
-    # 分离 server 和 mappings 配置
+    # 分离各段配置
     server_conf = config.pop("server", None)
     mappings_conf = config.pop("mappings", None)
+    config.pop("client", None)  # client 段由 CLI 读取，loader 不处理
     load_settings(server_conf, mappings_conf)
 
-    # 无 Provider 配置时使用默认
+    # 提取 routes 段，兼容新旧格式
+    routes_conf = config.pop("routes", None)
+    if routes_conf:
+        config = routes_conf
+    # 无路由配置时使用默认
     if not config:
         config = DEFAULT_CONFIG
 

@@ -6,19 +6,24 @@
 
 | # | 任务 | 说明 | 产出文件 | 状态 |
 |---|------|------|---------|------|
-| 1.1 | main.py 改为统一入口 | argparse 子命令：server / chat / test | `main.py` | 待开始 |
-| 1.2 | 新建 app/server.py | 迁移服务启动逻辑 | `app/server.py` | 待开始 |
-| 1.3 | settings.yaml 结构调整 | routes 段嵌套、新增 client 段 | `config/settings.example.yaml` | 待开始 |
-| 1.4 | loader.py 适配 routes 段 | 提取路由配置 | `app/core/loader.py` | 待开始 |
-| 1.5 | 测试目录迁移 | `tests/` → `app/tests/` | `app/tests/` | 待开始 |
-| 1.6 | 删除旧 tests 目录 | 确认迁移完成后删除 | — | 待开始 |
-| 1.7 | 全量测试 | 57 passed | — | 待开始 |
+| 1.1 | main.py 改为统一入口 | argparse 子命令：server / chat / test | `main.py` | 完成 |
+| 1.2 | 新建 app/server.py | 迁移服务启动逻辑 | `app/server.py` | 完成 |
+| 1.3 | settings.yaml 结构调整 | routes 段嵌套、新增 client 段 | `config/settings.example.yaml` | 完成 |
+| 1.4 | loader.py 适配 routes 段 | 提取路由配置 | `app/core/loader.py` | 完成 |
+| 1.5 | 测试目录迁移 | `tests/` → `app/tests/` | `app/tests/` | 完成 |
+| 1.6 | 删除旧 tests 目录 | 迁移完成，旧目录已不存在 | — | 完成 |
+| 1.7 | 全量测试 | 57 passed | — | 完成 |
 
 **验收**：`python main.py server` 启动正常，57 passed
 
 **执行记录**：
 
-> 待填写
+> - 1.1 main.py：argparse 统一入口，server（默认）/ chat（占位）/ test（占位），全局参数定义
+> - 1.2 app/server.py：FastAPI app + lifespan + health + start()，从 main.py 迁移
+> - 1.3 settings 模板：routes 段嵌套，新增 client 段；mockup 配置同步更新
+> - 1.4 loader.py：pop("routes") 提取路由配置，pop("client") 忽略，兼容新旧格式
+> - 1.5 测试迁移：tests/ → app/tests/，conftest.py sys.path 多上一层，路由测试 import 改为 app.server
+> - 1.7 验证：57 passed in 4.92s
 
 ---
 

@@ -43,7 +43,7 @@ Phase 8 (测试 + 文档)
 **目标**：统一入口、配置结构调整、测试目录迁移。不影响现有功能。
 
 | # | 任务 | 说明 | 产出文件 |
-|---|------|---------|
+|---|------|------|---------|
 | 1.1 | main.py 改为统一入口 | argparse 子命令：server / chat / test，server 为默认 | `main.py` |
 | 1.2 | 新建 app/server.py | 从 main.py 迁移服务启动逻辑（FastAPI app + lifespan + uvicorn.run） | `app/server.py` |
 | 1.3 | settings.yaml 结构调整 | routes 段嵌套、新增 client 段 | `config/settings.example.yaml` |
@@ -61,7 +61,7 @@ Phase 8 (测试 + 文档)
 **目标**：实现最简交互对话，非流式，单轮。
 
 | # | 任务 | 说明 | 产出文件 |
-|---|------|---------|
+|---|------|------|---------|
 | 2.1 | cli/ 目录结构 | 创建 cli/ 及 __init__.py | `cli/` |
 | 2.2 | ChatClient | HTTP 请求，支持三种 route，非流式 | `cli/client.py` |
 | 2.3 | Display 基础 | rich 输出，print_welcome / print_response / print_error | `cli/display.py` |
@@ -78,7 +78,7 @@ Phase 8 (测试 + 文档)
 **目标**：ChatClient 支持 SSE 流式，Display 逐字显示。
 
 | # | 任务 | 说明 | 产出文件 |
-|---|------|---------|
+|---|------|------|---------|
 | 3.1 | ChatClient 流式 | SSE 解析，yield 增量文本 | `cli/client.py` |
 | 3.2 | Display 流式 | print_stream_start / print_stream_chunk / print_stream_end | `cli/display.py` |
 | 3.3 | REPL 适配 | 流式/非流式分支 | `cli/repl.py` |
@@ -93,7 +93,7 @@ Phase 8 (测试 + 文档)
 **目标**：维护对话历史，支持上下文连续对话。
 
 | # | 任务 | 说明 | 产出文件 |
-|---|------|---------|
+|---|------|------|---------|
 | 4.1 | Conversation | add_user / add_assistant / get_messages / clear | `cli/conversation.py` |
 | 4.2 | REPL 接入 | 每轮对话更新 Conversation | `cli/repl.py` |
 
@@ -106,7 +106,7 @@ Phase 8 (测试 + 文档)
 **目标**：交互模式支持 /help /model /route /stream /history /clear /quit。
 
 | # | 任务 | 说明 | 产出文件 |
-|---|------|---------|
+|---|------|------|---------|
 | 5.1 | CommandHandler | 命令解析 + 分发 | `cli/commands.py` |
 | 5.2 | REPL 接入 | 输入前判断是否斜杠命令 | `cli/repl.py` |
 
@@ -119,7 +119,7 @@ Phase 8 (测试 + 文档)
 **目标**：检测响应中的 tool_calls，格式化展示。
 
 | # | 任务 | 说明 | 产出文件 |
-|---|------|---------|
+|---|------|------|---------|
 | 6.1 | ChatClient 解析 tool_calls | 从非流式/流式响应中提取 tool_calls | `cli/client.py` |
 | 6.2 | Display tool call | print_tool_call / print_tool_result | `cli/display.py` |
 | 6.3 | Conversation 记录 | add_tool_result | `cli/conversation.py` |
@@ -133,7 +133,7 @@ Phase 8 (测试 + 文档)
 **目标**：`python main.py test` 自动测试服务可用性。
 
 | # | 任务 | 说明 | 产出文件 |
-|---|------|---------|
+|---|------|------|---------|
 | 7.1 | Tester | health + 三端点 × 流式/非流式 | `cli/tester.py` |
 | 7.2 | main.py test 子命令 | 接入 Tester，支持 --base-url / --route | `main.py` |
 | 7.3 | Display 测试结果 | ✓/✗ 格式化输出 | `cli/display.py` |
@@ -147,7 +147,7 @@ Phase 8 (测试 + 文档)
 **目标**：CLI 单元测试，文档更新。
 
 | # | 任务 | 说明 | 产出文件 |
-|---|------|---------|
+|---|------|------|---------|
 | 8.1 | CLI 单元测试 | ChatClient / Conversation / CommandHandler | `cli/tests/` |
 | 8.2 | 更新 README.md | CLI 用法、项目结构 | `README.md` |
 | 8.3 | 更新 CLAUDE.md | 对齐 | `CLAUDE.md` |

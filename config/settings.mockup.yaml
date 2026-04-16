@@ -9,23 +9,24 @@ server:
 
 # mappings: 使用内置默认映射，无需配置
 
-completions:
-  path: /v1/chat/completions
-  base_url: http://localhost
-  provider: mockup
-  interface: messages
-  converter: completions_from_messages
+routes:
+  completions:
+    path: /v1/chat/completions
+    base_url: http://localhost
+    provider: mockup
+    interface: messages
+    converter: completions_from_messages
 
-responses:
-  path: /v1/responses
-  base_url: http://localhost
-  provider: mockup
-  interface: messages
-  converter: responses_from_messages
-
-messages:
-  path: /v1/messages
-  base_url: http://localhost
-  provider: mockup
-  interface: completions
-  converter: messages_from_completions
+  responses:
+    path: /v1/responses
+    base_url: http://localhost
+    provider: mockup
+    interface: messages
+    converter: responses_from_messages
+    
+  messages:
+    path: /v1/messages
+    base_url: http://localhost
+    provider: mockup
+    interface: completions
+    converter: messages_from_completions
