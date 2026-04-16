@@ -31,18 +31,22 @@
 
 | # | 任务 | 说明 | 产出文件 | 状态 |
 |---|------|------|---------|------|
-| 2.1 | cli/ 目录结构 | 创建 cli/ 及 __init__.py | `cli/` | 待开始 |
-| 2.2 | ChatClient | HTTP 请求，支持三种 route，非流式 | `cli/client.py` | 待开始 |
-| 2.3 | Display 基础 | rich 输出 | `cli/display.py` | 待开始 |
-| 2.4 | REPL 基础 | 输入循环 | `cli/repl.py` | 待开始 |
-| 2.5 | main.py chat 子命令 | 接入 REPL | `main.py` | 待开始 |
-| 2.6 | 配置加载 | settings.yaml client 段 + 命令行覆盖 | `cli/config.py` | 待开始 |
+| 2.1 | cli/ 目录结构 | 创建 cli/ 及 __init__.py | `cli/` | 完成 |
+| 2.2 | ChatClient | HTTP 请求，支持三种 route，非流式 + 流式 | `cli/client.py` | 完成 |
+| 2.3 | Display 基础 | rich 输出 | `cli/display.py` | 完成 |
+| 2.4 | REPL 基础 | 输入循环 + 单次对话 | `cli/repl.py` | 完成 |
+| 2.5 | main.py chat 子命令 | 接入 REPL | `main.py` | 完成 |
+| 2.6 | 配置加载 | settings.yaml client 段 + 命令行覆盖 | `cli/config.py` | 完成 |
 
 **验收**：`python main.py chat` 可交互对话
 
 **执行记录**：
 
-> 待填写
+> - 2.2 ChatClient：send（非流式）+ send_stream（SSE 流式），parse_response/parse_stream_chunk 三种路由解析
+> - 2.3 Display：rich Panel 欢迎、Markdown 响应、流式逐字、error/info
+> - 2.4 REPL：交互循环 + 单次对话 run_single，流式/非流式分支
+> - 2.6 config：load_client_config 从 settings.yaml 读取，merge_args 命令行覆盖
+> - 验证：mockup 模式非流式和流式单次对话均正常
 
 ---
 
