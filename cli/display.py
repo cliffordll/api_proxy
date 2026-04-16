@@ -50,6 +50,17 @@ class Display:
     def print_tool_result(self, result: str):
         console.print(Panel(result, title="result", border_style="green"))
 
+    def print_models(self, models: list[str] | None, numbered: bool = False):
+        if models:
+            console.print("[dim]可用模型:[/dim]")
+            for i, m in enumerate(models):
+                if numbered:
+                    console.print(f"[dim]  [{i + 1}] {m}[/dim]")
+                else:
+                    console.print(f"[dim]  - {m}[/dim]")
+        else:
+            console.print("[dim]模型探测不可用（服务未提供 /v1/models 端点）[/dim]")
+
     def print_error(self, message: str):
         console.print(f"[red]{message}[/red]")
 

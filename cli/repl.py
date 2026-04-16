@@ -22,7 +22,7 @@ class Repl:
         )
         self.conversation = Conversation()
         self.display = Display()
-        self.commands = CommandHandler(config, self.conversation, self.display)
+        self.commands = CommandHandler(config, self.conversation, self.display, self.client)
 
     async def run(self):
         """主循环。"""
@@ -32,6 +32,11 @@ class Repl:
             self.config["model"],
             self.config["stream"],
         )
+
+        # 探测可用模型
+        models = await self.client.list_models()
+        self.display.print_models(models)
+        print()
 
         while True:
             try:
@@ -45,7 +50,7 @@ class Repl:
             if user_input in ("/quit", "/exit"):
                 print("Bye!")
                 break
-            if self.commands.handle(user_input):
+            if await self.commands.handle(user_input):
                 # 路由切换后需要更新 client
                 if self.client.route != self.config["route"]:
                     self.client = ChatClient(
@@ -53,6 +58,7 @@ class Repl:
                         route=self.config["route"],
                         api_key=self.config["api_key"],
                     )
+                    self.commands.client = self.client
                 continue
 
             self.conversation.add_user(user_input)

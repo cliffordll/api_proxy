@@ -10,12 +10,13 @@ from cli.display import Display
 class CommandHandler:
     """解析和执行斜杠命令。"""
 
-    def __init__(self, config: dict, conversation, display: Display):
+    def __init__(self, config: dict, conversation, display: Display, client=None):
         self.config = config
         self.conversation = conversation
         self.display = display
+        self.client = client
 
-    def handle(self, input_text: str) -> bool:
+    async def handle(self, input_text: str) -> bool:
         """处理斜杠命令，返回 True 表示已处理。"""
         if not input_text.startswith("/"):
             return False
@@ -29,13 +30,16 @@ class CommandHandler:
             "/model": lambda: self._cmd_model(arg),
             "/route": lambda: self._cmd_route(arg),
             "/stream": lambda: self._cmd_stream(arg),
+            "/models": self._cmd_models,
             "/history": self._cmd_history,
             "/clear": self._cmd_clear,
         }
 
         handler = handlers.get(cmd)
         if handler:
-            handler()
+            result = handler()
+            if hasattr(result, "__await__"):
+                await result
             return True
 
         # /quit /exit 由 REPL 处理
@@ -49,6 +53,7 @@ class CommandHandler:
         help_text = (
             "/help              显示帮助\n"
             "/model <name>      切换模型\n"
+            "/models            查看可用模型\n"
             "/route <name>      切换路由 (completions/messages/responses)\n"
             "/stream on|off     开关流式\n"
             "/history           查看对话历史\n"
@@ -56,6 +61,31 @@ class CommandHandler:
             "/quit              退出"
         )
         self.display.print_info(help_text)
+
+    async def _cmd_models(self):
+        if not self.client:
+            self.display.print_error("client 未初始化")
+            return
+        models = await self.client.list_models()
+        if not models:
+            self.display.print_models(None)
+            return
+        self.display.print_models(models, numbered=True)
+        try:
+            choice = input("选择模型 (输入编号，回车跳过): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            return
+        if not choice:
+            return
+        try:
+            idx = int(choice) - 1
+            if 0 <= idx < len(models):
+                self.config["model"] = models[idx]
+                self.display.print_info(f"模型已切换: {models[idx]}")
+            else:
+                self.display.print_error(f"无效编号: {choice}")
+        except ValueError:
+            self.display.print_error(f"无效输入: {choice}")
 
     def _cmd_model(self, name: str):
         if not name:
@@ -73,7 +103,6 @@ class CommandHandler:
             self.display.print_error(f"无效路由: {name}，可选: {', '.join(valid)}")
             return
         self.config["route"] = name
-        # 更新 client 的 route
         self.display.print_info(f"路由已切换: {name}")
 
     def _cmd_stream(self, arg: str):
