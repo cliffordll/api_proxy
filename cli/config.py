@@ -47,7 +47,14 @@ def load_client_config(config_path: str = "config/settings.yaml") -> dict:
 def merge_args(config: dict, args) -> dict:
     """命令行参数覆盖配置文件。"""
     if getattr(args, "base_url", None):
-        config["base_url"] = args.base_url
+        url = args.base_url
+        if url.rstrip("/").endswith("/v1"):
+            from cli.display import Display
+            Display().print_error(
+                f"base-url 不需要带 /v1，已自动去除: {url} -> {url.rstrip('/').rsplit('/v1', 1)[0]}"
+            )
+            url = url.rstrip("/").rsplit("/v1", 1)[0]
+        config["base_url"] = url
     if getattr(args, "route", None):
         config["route"] = args.route
     if getattr(args, "model", None):
