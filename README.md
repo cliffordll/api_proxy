@@ -1,28 +1,33 @@
 # API Proxy — 多协议双向转换代理
 
-一个基于 FastAPI 的轻量级 API 代理服务，实现 OpenAI、Claude (Anthropic)、Responses 三套 API 协议之间的**双向实时转换**。支持通过配置灵活切换上游供应商，无需修改业务代码。
+一个基于 FastAPI 的轻量级 API 代理服务，实现 OpenAI、Claude (Anthropic)、Responses 三套 API 协议之间的**双向实时转换**。支持通过配置灵活切换上游供应商，内置 CLI 客户端，无需修改业务代码。
 
 ---
 
 ## 功能特性
 
+### 代理服务
 - **三协议互转**：Completions / Messages / Responses 三种格式 6 个方向全覆盖
-- **配置驱动**：`settings.yaml` 一个文件定义上游供应商 + 转换器组合，新增供应商只改配置
+- **配置驱动**：`settings.yaml` 一个文件管理服务 + 路由 + 映射 + 客户端配置
 - **Proxy 架构**：`proxy.chat()` 一行调用，自动完成 请求转换 → 上游调用 → 响应转换
-- **四种客户端**：ClaudeClient (anthropic SDK) / OpenAIClient (openai SDK) / HttpxClient (通用 HTTP) / MockupClient (调试模式)
-- **流式响应 (SSE)**：完整支持流式输出，逐事件转换
+- **五种客户端**：ClaudeClient / OpenAIClient / OllamaClient / HttpxClient / MockupClient
+- **自动透传**：不配 `from` 字段时自动透传，无需格式转换
+- **流式响应 (SSE)**：完整支持流式输出
 - **Tool Calling**：完整支持工具调用互转
-- **模型名自动映射**：可通过 YAML 配置自定义，未命中则透传
-- **认证透传**：不存储任何 API Key，从请求中提取后直接传给上游
-- **调试模式**：MockupClient 无需真实 API 即可测试全流程
+- **模型名自动映射**：可通过 YAML 配置，未命中则透传
+- **认证透传**：不存储 API Key，从请求中提取后直接传给上游
+
+### CLI 客户端
+- **交互对话**：多轮对话 + 流式输出 + 上下文记忆
+- **Tab 补全**：斜杠命令、模型名、路由名动态补全
+- **模型探测**：启动时自动探测可用模型，`/models` 命令查看并选择
+- **斜杠命令**：`/model` `/models` `/route` `/stream` `/history` `/clear` `/quit`
+- **Tool Call 展示**：格式化展示工具调用参数和结果
+- **冒烟测试**：`python main.py test` 一键验证服务可用性
 
 ---
 
 ## 快速开始
-
-### 环境要求
-
-- Python 3.10+
 
 ### 安装
 
@@ -32,58 +37,74 @@ cd api_proxy
 pip install -r requirements.txt
 ```
 
-### 配置（可选）
-
-所有配置通过 `config/settings.yaml` 统一管理（含服务参数和 Provider 配置），不存在时使用内置默认值，零配置即可启动。
+### 配置
 
 ```bash
 cp config/settings.example.yaml config/settings.yaml
 ```
 
-### 启动服务
+所有配置通过 `config/settings.yaml` 统一管理，不存在时使用内置默认值。
+
+### 启动
 
 ```bash
-python main.py server
-```
-
-服务默认监听 `http://0.0.0.0:8000`。
-
-### CLI 对话
-
-```bash
-# 交互模式
-python main.py chat
-
-# 单次对话
-python main.py chat "hello"
-
-# 指定参数
-python main.py chat --base-url http://localhost:8000 --route messages --model qwen2.5:3b
-```
-
-交互模式支持斜杠命令：`/help` `/model` `/route` `/stream` `/history` `/clear` `/quit`
-
-### 冒烟测试
-
-```bash
-python main.py test
-python main.py test --base-url http://remote:8000
+python main.py server          # 启动代理服务
+python main.py chat            # 交互对话
+python main.py chat "hello"    # 单次对话
+python main.py test            # 冒烟测试
 ```
 
 ### 调试模式
-
-无需真实 API Key，使用 MockupClient 测试全流程：
 
 ```bash
 cp config/settings.mockup.yaml config/settings.yaml
 python main.py server
 ```
 
-### 验证
+---
+
+## CLI 使用
+
+### 交互模式
 
 ```bash
-curl http://localhost:8000/health
-# 返回: {"status":"ok"}
+python main.py chat
+python main.py chat --base-url http://localhost:8000 --route messages --model qwen2.5:3b
+```
+
+支持 Tab 自动补全和上下箭头翻历史。
+
+### 斜杠命令
+
+| 命令 | 说明 |
+|------|------|
+| `/help` | 显示帮助 |
+| `/model <name>` | 切换模型 |
+| `/models` | 查看可用模型并选择 |
+| `/route <name>` | 切换路由（completions / messages / responses） |
+| `/stream on\|off` | 开关流式 |
+| `/history` | 查看对话历史 |
+| `/clear` | 清空对话 |
+| `/quit` | 退出 |
+
+### 命令行参数
+
+| 参数 | 说明 |
+|------|------|
+| `--base-url` | 目标服务基础地址（不带 /v1） |
+| `--route` | 路由：completions / messages / responses |
+| `--model` | 模型名 |
+| `--api-key` | 认证密钥 |
+| `--stream` / `--no-stream` | 流式开关 |
+
+参数优先级：命令行 > config/settings.yaml 的 client 段 > 内置默认值。
+
+### 冒烟测试
+
+```bash
+python main.py test                                # 测本地服务
+python main.py test --base-url http://remote:8000  # 测远程服务
+python main.py test --route completions            # 测单个路由
 ```
 
 ---
@@ -96,38 +117,96 @@ curl http://localhost:8000/health
 
 ### `POST /v1/chat/completions`
 
-OpenAI Completions 兼容端点。认证：`Authorization: Bearer <api-key>`
-
-```bash
-curl http://localhost:8000/v1/chat/completions \
-  -H "Authorization: Bearer sk-ant-xxxxx" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"gpt-4o","messages":[{"role":"user","content":"Hello!"}]}'
-```
+Completions 兼容端点。认证：`Authorization: Bearer <api-key>`
 
 ### `POST /v1/responses`
 
-OpenAI Responses 兼容端点。认证：`Authorization: Bearer <api-key>`
-
-```bash
-curl http://localhost:8000/v1/responses \
-  -H "Authorization: Bearer sk-ant-xxxxx" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"gpt-4o","input":"Hello!"}'
-```
+Responses 兼容端点。认证：`Authorization: Bearer <api-key>`
 
 ### `POST /v1/messages`
 
-Claude Messages 兼容端点。认证：`x-api-key: <api-key>`
-
-```bash
-curl http://localhost:8000/v1/messages \
-  -H "x-api-key: sk-xxxxx" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"claude-sonnet-4-6-20250514","max_tokens":1024,"messages":[{"role":"user","content":"Hello!"}]}'
-```
+Messages 兼容端点。认证：`x-api-key: <api-key>`
 
 所有端点均支持 `"stream": true` 流式输出。
+
+---
+
+## 配置
+
+### 完整结构
+
+```yaml
+# config/settings.yaml
+
+server:
+  host: 0.0.0.0
+  port: 8000
+  log_level: info
+  default_max_tokens: 4096
+
+mappings:
+  openai_to_claude:
+    gpt-4o: claude-sonnet-4-6-20250514
+    gpt-4: claude-opus-4-6-20250514
+    gpt-3.5-turbo: claude-haiku-4-5-20251001
+  claude_to_openai:
+    claude-sonnet-4-6-20250514: gpt-4o
+    claude-opus-4-6-20250514: gpt-4
+    claude-haiku-4-5-20251001: gpt-3.5-turbo
+
+routes:
+  completions:
+    path: /v1/chat/completions
+    base_url: https://api.anthropic.com
+    provider: claude
+    from: messages
+
+  responses:
+    path: /v1/responses
+    base_url: https://api.anthropic.com
+    provider: claude
+    from: messages
+
+  messages:
+    path: /v1/messages
+    base_url: https://api.openai.com/v1
+    provider: openai
+    from: completions
+
+client:
+  base_url: http://localhost:8000
+  route: completions
+  model: claude-sonnet-4-6-20250514
+  api_key: EMPTY
+  stream: true
+```
+
+### 路由配置字段
+
+| 字段 | 说明 |
+|------|------|
+| `path` | 本代理暴露的路由路径 |
+| `base_url` | 上游 API 地址（claude 不带 /v1，openai/ollama 带 /v1） |
+| `provider` | 客户端类型：`claude` / `openai` / `ollama` / `httpx` / `mockup` |
+| `from` | 上游格式，自动推导转换器（`{路由名}_from_{from值}`），不配则透传 |
+
+### 扩展示例
+
+```yaml
+# Ollama
+routes:
+  messages:
+    path: /v1/messages
+    base_url: http://localhost:11434/v1
+    provider: ollama
+    from: completions
+
+# 透传（不配 from，不做格式转换）
+  completions:
+    path: /v1/chat/completions
+    base_url: http://localhost:11434/v1
+    provider: httpx
+```
 
 ---
 
@@ -140,7 +219,7 @@ from openai import OpenAI
 
 client = OpenAI(api_key="sk-ant-xxxxx", base_url="http://localhost:8000/v1")
 response = client.chat.completions.create(
-    model="gpt-4o",  # 自动映射为 claude-sonnet-4-6
+    model="gpt-4o",
     messages=[{"role": "user", "content": "Hello!"}],
 )
 print(response.choices[0].message.content)
@@ -153,86 +232,11 @@ import anthropic
 
 client = anthropic.Anthropic(api_key="sk-xxxxx", base_url="http://localhost:8000")
 message = client.messages.create(
-    model="claude-sonnet-4-6-20250514",  # 自动映射为 gpt-4o
+    model="claude-sonnet-4-6-20250514",
     max_tokens=1024,
     messages=[{"role": "user", "content": "Hello!"}],
 )
 print(message.content[0].text)
-```
-
----
-
-## Provider 配置
-
-通过 `config/settings.yaml` 配置每个端点的上游供应商和转换器：
-
-```yaml
-completions:
-  path: /v1/chat/completions
-  base_url: https://api.anthropic.com
-  provider: claude           # 客户端类型
-  interface: messages        # 上游接口类型
-  converter: completions_from_messages  # 转换器
-
-responses:
-  path: /v1/responses
-  base_url: https://api.anthropic.com
-  provider: claude
-  interface: messages
-  converter: responses_from_messages
-
-messages:
-  path: /v1/messages
-  base_url: https://api.openai.com/v1
-  provider: openai
-  interface: completions
-  converter: messages_from_completions
-```
-
-| 字段 | 说明 |
-|------|------|
-| `provider` | 客户端类型：`claude` / `openai` / `httpx` / `mockup` |
-| `interface` | 上游接口：`messages` / `completions` / `responses` |
-| `converter` | 转换器：`{输出格式}_from_{输入格式}` |
-
-### 扩展示例
-
-切换上游为 Ollama（兼容 OpenAI 协议）：
-
-```yaml
-messages:
-  base_url: http://localhost:11434/v1
-  provider: ollama
-  interface: completions
-  converter: messages_from_completions
-```
-
-通过 HttpxClient 接入任意兼容 API：
-
-```yaml
-completions:
-  base_url: https://some-provider.com
-  provider: httpx
-  interface: completions
-  converter: completions_from_completions
-```
-
----
-
-## 模型映射
-
-在 `config/settings.yaml` 的 `mappings` 段配置，未命中则透传：
-
-```yaml
-mappings:
-  openai_to_claude:
-    gpt-4o: claude-sonnet-4-6-20250514
-    gpt-4: claude-opus-4-6-20250514
-    gpt-3.5-turbo: claude-haiku-4-5-20251001
-  claude_to_openai:
-    claude-sonnet-4-6-20250514: gpt-4o
-    claude-opus-4-6-20250514: gpt-4
-    claude-haiku-4-5-20251001: gpt-3.5-turbo
 ```
 
 ---
@@ -249,33 +253,26 @@ api_proxy/
 │   └── settings.mockup.yaml         # 调试模式配置
 ├── app/                             # 代理服务
 │   ├── server.py                    # 服务启动（FastAPI app）
-│   ├── core/
-│   ├── clients/
-│   ├── converters/
-│   ├── routes/
-│   └── tests/                       # 服务测试（57）
+│   ├── core/                        # 核心层（BaseClient/BaseConverter/Proxy/Loader）
+│   ├── clients/                     # 客户端层（Claude/OpenAI/Httpx/Mockup）
+│   ├── converters/                  # 转换层（6 个转换器 + PassthroughConverter）
+│   ├── routes/                      # 路由层（completions/messages/responses）
+│   └── tests/                       # 服务测试
 ├── cli/                             # CLI 客户端（独立，不 import app/）
 │   ├── client.py                    # ChatClient (HTTP + SSE)
+│   ├── config.py                    # 配置加载
 │   ├── conversation.py              # 多轮对话管理
 │   ├── commands.py                  # 斜杠命令
 │   ├── display.py                   # rich 格式化输出
-│   ├── repl.py                      # 交互循环
+│   ├── repl.py                      # 交互循环 + Tab 补全
 │   ├── tester.py                    # 冒烟测试
-│   └── tests/                       # CLI 测试（28）
+│   └── tests/                       # CLI 测试
+└── docs/
+    ├── architecture.md              # 架构设计
+    ├── feature.md                   # 开发计划
+    ├── process.md                   # 开发过程记录
+    └── history/                     # 归档历史
 ```
-
----
-
-## 架构
-
-```
-用户请求 → 路由层 → Proxy.chat() → [Converter.convert_request → Client.chat → Converter.convert_response] → 响应
-```
-
-- **Proxy**：封装 Client + Converter，`chat()` 一行调用完成全流程
-- **ProxyRegistry**：按接口名管理 Proxy 实例，`load_providers()` 从配置自动装配
-- **BaseClient**：统一 `chat(dict, api_key, stream)` 接口，输出 dict / AsyncIterator[str]
-- **BaseConverter**：纯格式转换，输入输出统一 dict/str，无 SDK 类型依赖
 
 ---
 
@@ -298,8 +295,8 @@ python main.py test                         # 冒烟测试（需服务运行）
 | OpenAI 客户端 | openai SDK |
 | Anthropic 客户端 | anthropic SDK |
 | 通用 HTTP | httpx |
-| 配置管理 | PyYAML (config/settings.yaml) |
-| 模型映射 | PyYAML |
+| 配置管理 | PyYAML |
+| CLI 终端 | rich + prompt_toolkit |
 | 测试 | pytest + pytest-asyncio |
 
 ---
