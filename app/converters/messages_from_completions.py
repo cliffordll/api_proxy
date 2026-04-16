@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 import uuid
 from contextvars import ContextVar
-from typing import Any
+
+from openai.types.chat import ChatCompletion, ChatCompletionChunk
 
 from app.core.config import map_model
 from app.core.converter import BaseConverter
@@ -110,8 +111,9 @@ class MessagesFromCompletionsConverter(BaseConverter):
 
     # ── 响应转换（非流式）──────────────────────────────────────
 
-    def convert_response(self, response: dict) -> dict:
-        """Completions 响应 dict → Messages 响应 dict"""
+    def convert_response(self, response: ChatCompletion | dict) -> str:
+        """Completions 响应 → Messages 响应 JSON 字符串"""
+        response = self._to_dict(response)
         choice = response["choices"][0]
         message = choice["message"]
 
@@ -139,7 +141,7 @@ class MessagesFromCompletionsConverter(BaseConverter):
         if not msg_id:
             msg_id = f"msg_{uuid.uuid4().hex[:24]}"
 
-        return {
+        result = {
             "id": msg_id,
             "type": "message",
             "role": "assistant",
@@ -151,15 +153,16 @@ class MessagesFromCompletionsConverter(BaseConverter):
                 "output_tokens": usage.get("completion_tokens", 0),
             },
         }
+        return json.dumps(result, ensure_ascii=False)
 
     # ── 流式事件转换 ──────────────────────────────────────────
 
-    def convert_stream_event(self, data: str) -> list[str]:
-        """Completions SSE data (JSON str) → Messages SSE data list[str]"""
-        if data == "[DONE]":
+    def convert_stream_event(self, event: ChatCompletionChunk | str) -> list[str]:
+        """Completions SSE event → Messages SSE data list[str]"""
+        if isinstance(event, str) and event.strip() == "[DONE]":
             return []
 
-        chunk = json.loads(data)
+        chunk = self._to_dict(event)
         state = self._stream_state
         results: list[str] = []
 
@@ -297,6 +300,6 @@ def _convert_tool_choice_to_openai(choice: dict) -> str | dict:
 
 
 def _event_json(event_type: str, data: dict) -> str:
-    """生成 Messages SSE data JSON 字符串（含 type 字段）。"""
+    """生成 Messages SSE 完整块（event + data + 空行）。"""
     payload = {"type": event_type, **data}
-    return json.dumps(payload, ensure_ascii=False)
+    return f"event: {event_type}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"

@@ -40,11 +40,11 @@ class TestRequest:
 class TestResponse:
     def test_basic(self):
         c = MessagesFromCompletionsConverter()
-        resp = c.convert_response({
+        resp = json.loads(c.convert_response({
             "id": "chatcmpl-abc", "model": "gpt-4o",
             "choices": [{"index": 0, "message": {"role": "assistant", "content": "Hello!"}, "finish_reason": "stop"}],
             "usage": {"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8},
-        })
+        }))
         assert resp["id"] == "msg_abc"
         assert resp["content"][0]["text"] == "Hello!"
         assert resp["stop_reason"] == "end_turn"
@@ -52,14 +52,14 @@ class TestResponse:
 
     def test_tool_calls(self):
         c = MessagesFromCompletionsConverter()
-        resp = c.convert_response({
+        resp = json.loads(c.convert_response({
             "id": "chatcmpl-abc", "model": "gpt-4o",
             "choices": [{"index": 0, "message": {
                 "role": "assistant", "content": None,
                 "tool_calls": [{"id": "tc_1", "type": "function", "function": {"name": "f", "arguments": "{}"}}],
             }, "finish_reason": "tool_calls"}],
             "usage": {"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8},
-        })
+        }))
         assert resp["content"][0]["type"] == "tool_use"
         assert resp["stop_reason"] == "tool_use"
 
@@ -78,7 +78,7 @@ class TestStream:
         done = c.convert_stream_done()
         all_results.extend(done)
 
-        types = [json.loads(r)["type"] for r in all_results]
+        types = [json.loads(r.split("data: ")[1])["type"] for r in all_results]
         assert "message_start" in types
         assert "content_block_start" in types
         assert "content_block_delta" in types

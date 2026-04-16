@@ -8,6 +8,8 @@ import uuid
 from contextvars import ContextVar
 from typing import Any
 
+from openai.types.chat import ChatCompletion, ChatCompletionChunk
+
 from app.core.config import get_settings, map_model
 from app.core.converter import BaseConverter
 
@@ -62,8 +64,9 @@ class ResponsesFromCompletionsConverter(BaseConverter):
 
     # ── 响应转换 ──────────────────────────────────────────────
 
-    def convert_response(self, response: dict) -> dict:
-        """Completions 响应 dict → Responses 响应 dict"""
+    def convert_response(self, response: ChatCompletion | dict) -> str:
+        """Completions 响应 → Responses 响应 JSON 字符串"""
+        response = self._to_dict(response)
         choice = response["choices"][0]
         message = choice["message"]
         output: list[dict] = []
@@ -89,7 +92,7 @@ class ResponsesFromCompletionsConverter(BaseConverter):
         status = "incomplete" if finish_reason == "length" else "completed"
         usage = response.get("usage", {})
 
-        return {
+        result = {
             "id": response.get("id", f"resp_{uuid.uuid4().hex[:24]}"),
             "object": "response",
             "created_at": int(time.time()),
@@ -102,12 +105,13 @@ class ResponsesFromCompletionsConverter(BaseConverter):
                 "total_tokens": usage.get("total_tokens", 0),
             },
         }
+        return json.dumps(result, ensure_ascii=False)
 
     # ── 流式事件转换 ──────────────────────────────────────────
 
-    def convert_stream_event(self, data: str) -> list[str]:
-        """Completions SSE data → Responses SSE data list"""
-        if data == "[DONE]":
+    def convert_stream_event(self, event: ChatCompletionChunk | str) -> list[str]:
+        """Completions SSE event → Responses SSE data list"""
+        if isinstance(event, str) and event.strip() == "[DONE]":
             state = self._stream_state
             resp_obj = {
                 "id": state.get("resp_id", ""),
@@ -124,7 +128,7 @@ class ResponsesFromCompletionsConverter(BaseConverter):
             }
             return [_resp_event("response.completed", {"response": resp_obj})]
 
-        chunk = json.loads(data)
+        chunk = self._to_dict(event)
         state = self._stream_state
         results: list[str] = []
 
@@ -252,4 +256,6 @@ def _convert_tool_choice_to_completions(choice: str | dict) -> str | dict:
 
 
 def _resp_event(event_type: str, data: dict) -> str:
-    return json.dumps({"type": event_type, **data}, ensure_ascii=False)
+    """生成 Responses SSE 完整块（event + data + 空行）。"""
+    payload = json.dumps({"type": event_type, **data}, ensure_ascii=False)
+    return f"event: {event_type}\ndata: {payload}\n\n"

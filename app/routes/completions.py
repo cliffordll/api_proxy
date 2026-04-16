@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import json
-
 from fastapi import APIRouter, Header, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from app.core.proxy import registry
 from app.core.errors import handle_anthropic_error, handle_openai_error
@@ -33,12 +31,12 @@ async def chat_completions(
     try:
         if not stream:
             result = await proxy.chat(body, api_key, stream=False)
-            return JSONResponse(content=result)
+            return Response(content=result, media_type="application/json")
 
         async def generate():
             stream = await proxy.chat(body, api_key, stream=True)
-            async for data in stream:
-                yield f"data: {data}\n\n"
+            async for item in stream:
+                yield item
 
         return StreamingResponse(generate(), media_type="text/event-stream")
 

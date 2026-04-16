@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import AsyncIterator
+from typing import Any, AsyncIterator
 
 from app.core.client import BaseClient
 from app.core.converter import BaseConverter
@@ -11,6 +11,7 @@ from app.core.converter import BaseConverter
 class Proxy:
     """客户端 + 转换器的组合，封装完整的 请求转换 → 上游调用 → 响应转换 流程。
 
+    Client 返回 SDK 原始对象，Proxy 直接透传给 Converter 处理。
     路由层只需调用 chat()，不关心内部编排。
     """
 
@@ -20,7 +21,7 @@ class Proxy:
 
     async def chat(
         self, body: dict, api_key: str, stream: bool = False
-    ) -> dict | AsyncIterator[str]:
+    ) -> str | AsyncIterator[str]:
         """统一调度入口。
 
         Args:
@@ -29,22 +30,22 @@ class Proxy:
             stream: 是否流式
 
         Returns:
-            非流式: dict（已转换为下游格式的响应）
+            非流式: str（JSON 字符串，已转换为下游格式）
             流式:   AsyncIterator[str]（已转换为下游格式的 SSE data）
         """
         req = self.converter.convert_request(body)
 
         if not stream:
-            resp = await self.client.chat(req, api_key, stream=False)
-            return self.converter.convert_response(resp)
+            raw = await self.client.chat(req, api_key, stream=False)
+            return self.converter.convert_response(raw)
         else:
             upstream = await self.client.chat(req, api_key, stream=True)
             return self._stream(upstream)
 
-    async def _stream(self, upstream: AsyncIterator[str]) -> AsyncIterator[str]:
-        """流式转换：逐条转换上游 SSE data，流结束后调用 convert_stream_done（如有）。"""
-        async for data in upstream:
-            for item in self.converter.convert_stream_event(data):
+    async def _stream(self, upstream: AsyncIterator) -> AsyncIterator[str]:
+        """流式转换：直接把 Client 事件传给 Converter，流结束后调用 convert_stream_done（如有）。"""
+        async for event in upstream:
+            for item in self.converter.convert_stream_event(event):
                 yield item
         if hasattr(self.converter, "convert_stream_done"):
             for item in self.converter.convert_stream_done():

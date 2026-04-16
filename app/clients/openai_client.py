@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import json
-from typing import AsyncIterator
+from typing import Any, AsyncIterator
 
 import openai
 
@@ -14,12 +13,12 @@ class OpenAIClient(BaseClient):
     """封装 openai.AsyncOpenAI，统一 chat() 接口。
 
     interface 为 "completions" 或 "responses"，决定调哪个 SDK 方法。
-    非流式返回 dict，流式 yield SSE data str。
+    返回 SDK 原始对象，不做序列化。
     """
 
     async def chat(
         self, params: dict, api_key: str, stream: bool = False
-    ) -> dict | AsyncIterator[str]:
+    ) -> Any:
         client = openai.AsyncOpenAI(
             api_key=api_key,
             base_url=self.base_url,
@@ -37,32 +36,30 @@ class OpenAIClient(BaseClient):
 
     async def _chat_completions(
         self, client: openai.AsyncOpenAI, params: dict, stream: bool
-    ) -> dict | AsyncIterator[str]:
+    ) -> Any:
         if not stream:
-            response = await client.chat.completions.create(**params)
-            return response.model_dump(mode="json")
+            return await client.chat.completions.create(**params)
         else:
             return self._stream_completions(client, params)
 
     async def _stream_completions(
         self, client: openai.AsyncOpenAI, params: dict
-    ) -> AsyncIterator[str]:
+    ) -> AsyncIterator:
         stream = await client.chat.completions.create(stream=True, **params)
         async for chunk in stream:
-            yield json.dumps(chunk.model_dump(mode="json"), ensure_ascii=False)
+            yield chunk
 
     async def _chat_responses(
         self, client: openai.AsyncOpenAI, params: dict, stream: bool
-    ) -> dict | AsyncIterator[str]:
+    ) -> Any:
         if not stream:
-            response = await client.responses.create(**params)
-            return response.model_dump(mode="json")
+            return await client.responses.create(**params)
         else:
             return self._stream_responses(client, params)
 
     async def _stream_responses(
         self, client: openai.AsyncOpenAI, params: dict
-    ) -> AsyncIterator[str]:
+    ) -> AsyncIterator:
         stream = await client.responses.create(stream=True, **params)
         async for event in stream:
-            yield json.dumps(event.model_dump(mode="json"), ensure_ascii=False)
+            yield event

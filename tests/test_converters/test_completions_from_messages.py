@@ -1,6 +1,7 @@
 """CompletionsFromMessagesConverter 测试"""
 
 import json
+
 from app.converters.completions_from_messages import CompletionsFromMessagesConverter
 
 
@@ -42,12 +43,12 @@ class TestRequest:
 class TestResponse:
     def test_basic(self):
         c = CompletionsFromMessagesConverter()
-        resp = c.convert_response({
+        resp = json.loads(c.convert_response({
             "id": "msg_1", "model": "claude", "role": "assistant",
             "content": [{"type": "text", "text": "Hi!"}],
             "stop_reason": "end_turn",
             "usage": {"input_tokens": 10, "output_tokens": 5},
-        })
+        }))
         assert resp["id"] == "chatcmpl-msg_1"
         assert resp["choices"][0]["finish_reason"] == "stop"
         assert resp["choices"][0]["message"]["content"] == "Hi!"
@@ -55,12 +56,12 @@ class TestResponse:
 
     def test_tool_use(self):
         c = CompletionsFromMessagesConverter()
-        resp = c.convert_response({
+        resp = json.loads(c.convert_response({
             "id": "msg_2", "model": "claude", "role": "assistant",
             "content": [{"type": "tool_use", "id": "tu_1", "name": "get_weather", "input": {"city": "NY"}}],
             "stop_reason": "tool_use",
             "usage": {"input_tokens": 10, "output_tokens": 5},
-        })
+        }))
         tc = resp["choices"][0]["message"]["tool_calls"][0]
         assert tc["function"]["name"] == "get_weather"
         assert resp["choices"][0]["finish_reason"] == "tool_calls"
@@ -81,6 +82,7 @@ class TestStream:
 
         # 应有: role chunk, content chunk, finish chunk, [DONE]
         assert len(all_results) == 4
-        first = json.loads(all_results[0])
+        assert all_results[0].startswith("data: ")
+        first = json.loads(all_results[0].split("data: ")[1])
         assert first["choices"][0]["delta"]["role"] == "assistant"
-        assert all_results[-1] == "[DONE]"
+        assert "data: [DONE]" in all_results[-1]

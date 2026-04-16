@@ -6,7 +6,8 @@ import json
 import time
 import uuid
 from contextvars import ContextVar
-from typing import Any
+
+from anthropic.types import Message, RawMessageStreamEvent
 
 from app.core.config import get_settings, map_model
 from app.core.converter import BaseConverter
@@ -64,8 +65,9 @@ class ResponsesFromMessagesConverter(BaseConverter):
 
     # ── 响应转换 ──────────────────────────────────────────────
 
-    def convert_response(self, response: dict) -> dict:
-        """Messages 响应 dict → Responses 响应 dict"""
+    def convert_response(self, response: Message | dict) -> str:
+        """Messages 响应 → Responses 响应 JSON 字符串"""
+        response = self._to_dict(response)
         output: list[dict] = []
         text_parts: list[str] = []
 
@@ -92,7 +94,7 @@ class ResponsesFromMessagesConverter(BaseConverter):
         status = "incomplete" if stop_reason == "max_tokens" else "completed"
         usage = response.get("usage", {})
 
-        return {
+        result = {
             "id": response.get("id", f"resp_{uuid.uuid4().hex[:24]}"),
             "object": "response",
             "created_at": int(time.time()),
@@ -105,12 +107,13 @@ class ResponsesFromMessagesConverter(BaseConverter):
                 "total_tokens": usage.get("input_tokens", 0) + usage.get("output_tokens", 0),
             },
         }
+        return json.dumps(result, ensure_ascii=False)
 
     # ── 流式事件转换 ──────────────────────────────────────────
 
-    def convert_stream_event(self, data: str) -> list[str]:
-        """Messages SSE data → Responses SSE data list"""
-        event = json.loads(data)
+    def convert_stream_event(self, event: RawMessageStreamEvent | str) -> list[str]:
+        """Messages SSE event → Responses SSE data list"""
+        event = self._to_dict(event)
         state = self._stream_state
         event_type = event.get("type", "")
         results: list[str] = []
@@ -273,4 +276,6 @@ def _make_response_obj(resp_id: str, model: str, status: str) -> dict:
 
 
 def _resp_event(event_type: str, data: dict) -> str:
-    return json.dumps({"type": event_type, **data}, ensure_ascii=False)
+    """生成 Responses SSE 完整块（event + data + 空行）。"""
+    payload = json.dumps({"type": event_type, **data}, ensure_ascii=False)
+    return f"event: {event_type}\ndata: {payload}\n\n"

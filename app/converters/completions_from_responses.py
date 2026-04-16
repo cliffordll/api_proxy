@@ -8,6 +8,8 @@ import uuid
 from contextvars import ContextVar
 from typing import Any
 
+from openai.types.responses import Response, ResponseStreamEvent
+
 from app.core.config import get_settings
 from app.core.converter import BaseConverter
 
@@ -97,8 +99,9 @@ class CompletionsFromResponsesConverter(BaseConverter):
 
     # ── 响应转换 ──────────────────────────────────────────────
 
-    def convert_response(self, response: dict) -> dict:
-        """Responses 响应 dict → Completions 响应 dict"""
+    def convert_response(self, response: Response | dict) -> str:
+        """Responses 响应 → Completions 响应 JSON 字符串"""
+        response = self._to_dict(response)
         text_parts: list[str] = []
         tool_calls: list[dict] = []
 
@@ -121,7 +124,7 @@ class CompletionsFromResponsesConverter(BaseConverter):
         finish_reason = "length" if status == "incomplete" else ("tool_calls" if tool_calls else "stop")
         usage = response.get("usage", {})
 
-        return {
+        result = {
             "id": f"chatcmpl-{response.get('id', '')}",
             "object": "chat.completion",
             "created": int(time.time()),
@@ -141,12 +144,13 @@ class CompletionsFromResponsesConverter(BaseConverter):
                 "total_tokens": usage.get("total_tokens", 0),
             },
         }
+        return json.dumps(result, ensure_ascii=False)
 
     # ── 流式事件转换 ──────────────────────────────────────────
 
-    def convert_stream_event(self, data: str) -> list[str]:
-        """Responses SSE data → Completions SSE data list"""
-        event = json.loads(data)
+    def convert_stream_event(self, event: ResponseStreamEvent | str) -> list[str]:
+        """Responses SSE event → Completions SSE data list"""
+        event = self._to_dict(event)
         state = self._stream_state
         event_type = event.get("type", "")
         results: list[str] = []
@@ -197,7 +201,7 @@ class CompletionsFromResponsesConverter(BaseConverter):
                     "total_tokens": usage.get("total_tokens", 0),
                 },
             ))
-            results.append("[DONE]")
+            results.append("data: [DONE]\n\n")
 
         return results
 
@@ -243,4 +247,4 @@ def _make_chunk_json(
     }
     if usage:
         chunk["usage"] = usage
-    return json.dumps(chunk, ensure_ascii=False)
+    return f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"

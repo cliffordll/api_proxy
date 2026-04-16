@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import json
-from typing import AsyncIterator
+from typing import Any, AsyncIterator
 
 import anthropic
 
@@ -14,12 +13,12 @@ class ClaudeClient(BaseClient):
     """封装 anthropic.AsyncAnthropic，统一 chat() 接口。
 
     interface 固定为 "messages"。
-    非流式返回 dict，流式 yield SSE data str。
+    返回 SDK 原始对象，不做序列化。
     """
 
     async def chat(
         self, params: dict, api_key: str, stream: bool = False
-    ) -> dict | AsyncIterator[str]:
+    ) -> Any:
         client = anthropic.AsyncAnthropic(
             api_key=api_key,
             base_url=self.base_url,
@@ -29,15 +28,14 @@ class ClaudeClient(BaseClient):
         params = {k: v for k, v in params.items() if k != "stream"}
 
         if not stream:
-            response = await client.messages.create(**params)
-            return response.model_dump(mode="json")
+            return await client.messages.create(**params)
         else:
             return self._stream_chat(client, params)
 
     async def _stream_chat(
         self, client: anthropic.AsyncAnthropic, params: dict
-    ) -> AsyncIterator[str]:
-        """流式调用，逐事件 yield JSON 字符串。"""
+    ) -> AsyncIterator:
+        """流式调用，逐事件 yield SDK 原始事件对象。"""
         stream = await client.messages.create(stream=True, **params)
         async for event in stream:
-            yield json.dumps(event.model_dump(mode="json"), ensure_ascii=False)
+            yield event

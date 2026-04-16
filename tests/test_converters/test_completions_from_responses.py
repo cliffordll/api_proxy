@@ -21,21 +21,21 @@ class TestRequest:
 class TestResponse:
     def test_basic(self):
         c = CompletionsFromResponsesConverter()
-        resp = c.convert_response({
+        resp = json.loads(c.convert_response({
             "id": "resp_1", "model": "gpt-4o", "status": "completed",
             "output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "Hi"}]}],
             "usage": {"input_tokens": 5, "output_tokens": 3, "total_tokens": 8},
-        })
+        }))
         assert resp["choices"][0]["message"]["content"] == "Hi"
         assert resp["choices"][0]["finish_reason"] == "stop"
 
     def test_function_call(self):
         c = CompletionsFromResponsesConverter()
-        resp = c.convert_response({
+        resp = json.loads(c.convert_response({
             "id": "resp_2", "model": "gpt-4o", "status": "completed",
             "output": [{"type": "function_call", "call_id": "c1", "name": "f", "arguments": "{}"}],
             "usage": {"input_tokens": 5, "output_tokens": 3, "total_tokens": 8},
-        })
+        }))
         assert resp["choices"][0]["message"]["tool_calls"][0]["function"]["name"] == "f"
         assert resp["choices"][0]["finish_reason"] == "tool_calls"
 
@@ -51,6 +51,6 @@ class TestStream:
         all_results = []
         for e in events:
             all_results.extend(c.convert_stream_event(e))
-        assert "[DONE]" in all_results
-        chunks = [json.loads(r) for r in all_results if r != "[DONE]"]
+        assert any("data: [DONE]" in r for r in all_results)
+        chunks = [json.loads(r.split("data: ")[1]) for r in all_results if "[DONE]" not in r]
         assert chunks[0]["choices"][0]["delta"]["role"] == "assistant"

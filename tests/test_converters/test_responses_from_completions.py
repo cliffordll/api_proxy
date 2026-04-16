@@ -15,11 +15,11 @@ class TestRequest:
 class TestResponse:
     def test_basic(self):
         c = ResponsesFromCompletionsConverter()
-        resp = c.convert_response({
+        resp = json.loads(c.convert_response({
             "id": "chatcmpl-1", "model": "gpt-4o",
             "choices": [{"index": 0, "message": {"role": "assistant", "content": "Hello"}, "finish_reason": "stop"}],
             "usage": {"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8},
-        })
+        }))
         assert resp["status"] == "completed"
         assert resp["output"][0]["content"][0]["text"] == "Hello"
 

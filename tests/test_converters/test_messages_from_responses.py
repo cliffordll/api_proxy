@@ -21,21 +21,21 @@ class TestRequest:
 class TestResponse:
     def test_text(self):
         c = MessagesFromResponsesConverter()
-        resp = c.convert_response({
+        resp = json.loads(c.convert_response({
             "id": "resp_1", "model": "gpt-4o", "status": "completed",
             "output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "Hi"}]}],
             "usage": {"input_tokens": 5, "output_tokens": 3, "total_tokens": 8},
-        })
+        }))
         assert resp["content"][0]["text"] == "Hi"
         assert resp["stop_reason"] == "end_turn"
 
     def test_tool_use(self):
         c = MessagesFromResponsesConverter()
-        resp = c.convert_response({
+        resp = json.loads(c.convert_response({
             "id": "resp_2", "model": "gpt-4o", "status": "completed",
             "output": [{"type": "function_call", "call_id": "c1", "name": "f", "arguments": "{}"}],
             "usage": {"input_tokens": 5, "output_tokens": 3, "total_tokens": 8},
-        })
+        }))
         assert resp["content"][0]["type"] == "tool_use"
         assert resp["stop_reason"] == "tool_use"
 
@@ -54,6 +54,6 @@ class TestStream:
         done = c.convert_stream_done()
         all_results.extend(done)
 
-        types = [json.loads(r)["type"] for r in all_results]
+        types = [json.loads(r.split("data: ")[1])["type"] for r in all_results]
         assert "message_start" in types
         assert "message_stop" in types

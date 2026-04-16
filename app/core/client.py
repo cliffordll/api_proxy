@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import AsyncIterator
+from typing import Any, AsyncIterator
 
 
 class BaseClient(ABC):
     """供应商客户端抽象接口。
 
-    统一传输层：输入 dict，输出 dict（非流式）或 AsyncIterator[str]（流式 SSE data）。
-    SDK 细节封装在各子类内部，对外只暴露 dict/str。
+    纯传输层：返回 SDK 原始对象或 dict/str，不做序列化。
+    序列化由 Proxy 层统一处理。
     """
 
     def __init__(self, base_url: str, interface: str):
@@ -20,7 +20,7 @@ class BaseClient(ABC):
     @abstractmethod
     async def chat(
         self, params: dict, api_key: str, stream: bool = False
-    ) -> dict | AsyncIterator[str]:
+    ) -> Any:
         """发送请求到上游 API。
 
         Args:
@@ -29,7 +29,7 @@ class BaseClient(ABC):
             stream: 是否流式
 
         Returns:
-            非流式: dict（上游 JSON 响应）
-            流式:   AsyncIterator[str]（SSE data 内容，不含 "data: " 前缀）
+            非流式: SDK 对象（ClaudeClient/OpenAIClient）或 dict（HttpxClient/MockupClient）
+            流式:   AsyncIterator of SDK 事件对象 或 str
         """
         ...

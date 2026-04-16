@@ -23,23 +23,23 @@ class TestRequest:
 class TestResponse:
     def test_text(self):
         c = ResponsesFromMessagesConverter()
-        resp = c.convert_response({
+        resp = json.loads(c.convert_response({
             "id": "msg_1", "model": "claude",
             "content": [{"type": "text", "text": "Hi!"}],
             "stop_reason": "end_turn",
             "usage": {"input_tokens": 10, "output_tokens": 5},
-        })
+        }))
         assert resp["status"] == "completed"
         assert resp["output"][0]["type"] == "message"
 
     def test_tool_use(self):
         c = ResponsesFromMessagesConverter()
-        resp = c.convert_response({
+        resp = json.loads(c.convert_response({
             "id": "msg_2", "model": "claude",
             "content": [{"type": "tool_use", "id": "tu_1", "name": "f", "input": {}}],
             "stop_reason": "tool_use",
             "usage": {"input_tokens": 10, "output_tokens": 5},
-        })
+        }))
         assert resp["output"][0]["type"] == "function_call"
 
 
@@ -57,7 +57,7 @@ class TestStream:
         all_results = []
         for e in events:
             all_results.extend(c.convert_stream_event(e))
-        types = [json.loads(r)["type"] for r in all_results]
+        types = [json.loads(r.split("data: ")[1])["type"] for r in all_results]
         assert "response.created" in types
         assert "response.output_text.delta" in types
         assert "response.completed" in types

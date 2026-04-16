@@ -7,6 +7,8 @@ import uuid
 from contextvars import ContextVar
 from typing import Any
 
+from openai.types.responses import Response, ResponseStreamEvent
+
 from app.core.config import get_settings, map_model
 from app.core.converter import BaseConverter
 
@@ -89,8 +91,9 @@ class MessagesFromResponsesConverter(BaseConverter):
 
     # ── 响应转换 ──────────────────────────────────────────────
 
-    def convert_response(self, response: dict) -> dict:
-        """Responses 响应 dict → Messages 响应 dict"""
+    def convert_response(self, response: Response | dict) -> str:
+        """Responses 响应 → Messages 响应 JSON 字符串"""
+        response = self._to_dict(response)
         content_blocks: list[dict] = []
 
         for item in response.get("output", []):
@@ -117,7 +120,7 @@ class MessagesFromResponsesConverter(BaseConverter):
         if not resp_id:
             resp_id = f"msg_{uuid.uuid4().hex[:24]}"
 
-        return {
+        result = {
             "id": resp_id,
             "type": "message",
             "role": "assistant",
@@ -129,12 +132,13 @@ class MessagesFromResponsesConverter(BaseConverter):
                 "output_tokens": usage.get("output_tokens", 0),
             },
         }
+        return json.dumps(result, ensure_ascii=False)
 
     # ── 流式事件转换 ──────────────────────────────────────────
 
-    def convert_stream_event(self, data: str) -> list[str]:
-        """Responses SSE data → Messages SSE data list"""
-        event = json.loads(data)
+    def convert_stream_event(self, event: ResponseStreamEvent | str) -> list[str]:
+        """Responses SSE event → Messages SSE data list"""
+        event = self._to_dict(event)
         state = self._stream_state
         event_type = event.get("type", "")
         results: list[str] = []
@@ -253,5 +257,6 @@ def _convert_tool_choice_to_responses(choice: dict) -> str | dict:
 
 
 def _event_json(event_type: str, data: dict) -> str:
+    """生成 Messages SSE 完整块（event + data + 空行）。"""
     payload = {"type": event_type, **data}
-    return json.dumps(payload, ensure_ascii=False)
+    return f"event: {event_type}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"

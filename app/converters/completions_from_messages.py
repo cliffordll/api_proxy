@@ -5,17 +5,15 @@ from __future__ import annotations
 import json
 import time
 from contextvars import ContextVar
-from typing import Any
+
+from anthropic.types import Message, RawMessageStreamEvent
 
 from app.core.config import get_settings, map_model
 from app.core.converter import BaseConverter
 
 
 class CompletionsFromMessagesConverter(BaseConverter):
-    """Completions 请求 → Messages 请求，Messages 响应 → Completions 响应。
-
-    全链路 dict/str，无 SDK 类型依赖。
-    """
+    """Completions 请求 → Messages 请求，Messages 响应 → Completions 响应。"""
 
     _state_var: ContextVar[dict] = ContextVar("cfm_stream_state")
 
@@ -103,8 +101,9 @@ class CompletionsFromMessagesConverter(BaseConverter):
 
     # ── 响应转换（非流式）──────────────────────────────────────
 
-    def convert_response(self, response: dict) -> dict:
-        """Messages 响应 dict → Completions 响应 dict"""
+    def convert_response(self, response: Message | dict) -> str:
+        """Messages 响应 → Completions 响应 JSON 字符串"""
+        response = self._to_dict(response)
         text_parts: list[str] = []
         tool_calls_list: list[dict] = []
 
@@ -127,7 +126,7 @@ class CompletionsFromMessagesConverter(BaseConverter):
         prompt_tokens = usage.get("input_tokens", 0)
         completion_tokens = usage.get("output_tokens", 0)
 
-        return {
+        result = {
             "id": f"chatcmpl-{response.get('id', '')}",
             "object": "chat.completion",
             "created": int(time.time()),
@@ -147,12 +146,13 @@ class CompletionsFromMessagesConverter(BaseConverter):
                 "total_tokens": prompt_tokens + completion_tokens,
             },
         }
+        return json.dumps(result, ensure_ascii=False)
 
     # ── 流式事件转换 ──────────────────────────────────────────
 
-    def convert_stream_event(self, data: str) -> list[str]:
-        """Messages SSE data (JSON str) → Completions SSE data list[str]"""
-        event = json.loads(data)
+    def convert_stream_event(self, event: RawMessageStreamEvent | str) -> list[str]:
+        """Messages SSE event → Completions SSE data list[str]"""
+        event = self._to_dict(event)
         state = self._stream_state
         event_type = event.get("type", "")
         results: list[str] = []
@@ -203,7 +203,7 @@ class CompletionsFromMessagesConverter(BaseConverter):
             ))
 
         elif event_type == "message_stop":
-            results.append("[DONE]")
+            results.append("data: [DONE]\n\n")
 
         return results
 
@@ -262,4 +262,4 @@ def _make_chunk_json(
     }
     if usage:
         chunk["usage"] = usage
-    return json.dumps(chunk, ensure_ascii=False)
+    return f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
