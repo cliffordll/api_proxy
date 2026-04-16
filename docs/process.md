@@ -103,15 +103,16 @@
 
 | # | 任务 | 说明 | 产出文件 | 状态 |
 |---|------|------|---------|------|
-| 6.1 | ChatClient 解析 tool_calls | 提取 tool_calls | `cli/client.py` | 待开始 |
-| 6.2 | Display tool call | 格式化显示 | `cli/display.py` | 待开始 |
-| 6.3 | Conversation 记录 | add_tool_result | `cli/conversation.py` | 待开始 |
+| 6.1 | ChatClient 解析 tool_calls | 提取 tool_calls（Phase 2 已实现） | `cli/client.py` | 完成 |
+| 6.2 | Display tool call | print_tool_call + print_tool_result | `cli/display.py` | 完成 |
+| 6.3 | REPL 展示 | 非流式检测 tool_calls 并格式化展示 | `cli/repl.py` | 完成 |
 
 **验收**：tool call 格式化显示
 
 **执行记录**：
 
-> 待填写
+> - 6.2 Display：print_tool_call（黄色标题 + JSON 语法高亮）、print_tool_result（绿色面板）
+> - 6.3 REPL：非流式响应检测 tool_calls，提取 name/arguments 展示
 
 ---
 

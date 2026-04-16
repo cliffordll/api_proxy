@@ -42,8 +42,8 @@ def main():
         from cli.repl import start
         start(args)
     elif args.command == "test":
-        print("test 功能开发中（Phase 7）")
-        sys.exit(1)
+        from cli.tester import start
+        start(args)
 
 
 if __name__ == "__main__":

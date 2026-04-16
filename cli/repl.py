@@ -71,7 +71,13 @@ class Repl:
             self.conversation.get_messages(), self.config["model"], stream=False
         )
         text, tool_calls = self.client.parse_response(resp)
-        self.display.print_response(text)
+        if tool_calls:
+            for tc in tool_calls:
+                name = tc.get("name") or tc.get("function", {}).get("name", "unknown")
+                args = tc.get("input") or tc.get("arguments") or tc.get("function", {}).get("arguments", "{}")
+                self.display.print_tool_call(name, args)
+        if text:
+            self.display.print_response(text)
         self.conversation.add_assistant(text, tool_calls)
 
     async def _stream_chat(self):
