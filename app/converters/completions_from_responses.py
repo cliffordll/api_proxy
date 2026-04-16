@@ -91,9 +91,9 @@ class CompletionsFromResponsesConverter(BaseConverter):
         if request.get("top_p") is not None:
             result["top_p"] = request["top_p"]
         if request.get("tools"):
-            result["tools"] = [_convert_tool_to_responses(t) for t in request["tools"]]
+            result["tools"] = [self._convert_tool_to_responses(t) for t in request["tools"]]
         if request.get("tool_choice") is not None:
-            result["tool_choice"] = _convert_tool_choice_to_responses(request["tool_choice"])
+            result["tool_choice"] = self._convert_tool_choice_to_responses(request["tool_choice"])
 
         return result
 
@@ -160,16 +160,16 @@ class CompletionsFromResponsesConverter(BaseConverter):
             state["id"] = f"chatcmpl-{resp.get('id', '')}"
             state["model"] = resp.get("model", "")
             state["tool_call_index"] = -1
-            results.append(_make_chunk_json(state, delta={"role": "assistant"}))
+            results.append(self._make_chunk_json(state, delta={"role": "assistant"}))
 
         elif event_type == "response.output_text.delta":
-            results.append(_make_chunk_json(state, delta={"content": event.get("delta", "")}))
+            results.append(self._make_chunk_json(state, delta={"content": event.get("delta", "")}))
 
         elif event_type == "response.output_item.added":
             item = event.get("item", {})
             if item.get("type") == "function_call":
                 state["tool_call_index"] = state.get("tool_call_index", -1) + 1
-                results.append(_make_chunk_json(state, delta={
+                results.append(self._make_chunk_json(state, delta={
                     "tool_calls": [{
                         "index": state["tool_call_index"],
                         "id": item.get("call_id", ""),
@@ -179,7 +179,7 @@ class CompletionsFromResponsesConverter(BaseConverter):
                 }))
 
         elif event_type == "response.function_call_arguments.delta":
-            results.append(_make_chunk_json(state, delta={
+            results.append(self._make_chunk_json(state, delta={
                 "tool_calls": [{
                     "index": state.get("tool_call_index", 0),
                     "function": {"arguments": event.get("delta", "")},
@@ -193,7 +193,7 @@ class CompletionsFromResponsesConverter(BaseConverter):
             if state.get("tool_call_index", -1) >= 0:
                 finish_reason = "tool_calls"
             usage = resp.get("usage", {})
-            results.append(_make_chunk_json(
+            results.append(self._make_chunk_json(
                 state, delta={}, finish_reason=finish_reason,
                 usage={
                     "prompt_tokens": usage.get("input_tokens", 0),
@@ -205,46 +205,45 @@ class CompletionsFromResponsesConverter(BaseConverter):
 
         return results
 
+    # ── 工具方法 ──────────────────────────────────────────────
 
-# ── 工具函数 ──────────────────────────────────────────────────
+    @staticmethod
+    def _convert_tool_to_responses(tool: dict) -> dict:
+        func = tool.get("function", {})
+        return {
+            "type": "function",
+            "name": func.get("name", ""),
+            "description": func.get("description", ""),
+            "parameters": func.get("parameters", {}),
+        }
 
+    @staticmethod
+    def _convert_tool_choice_to_responses(choice: str | dict) -> str | dict:
+        if isinstance(choice, str):
+            return choice  # "auto" / "none" / "required"
+        if isinstance(choice, dict):
+            func = choice.get("function", {})
+            return {"type": "function", "name": func.get("name", "")}
+        return "auto"
 
-def _convert_tool_to_responses(tool: dict) -> dict:
-    func = tool.get("function", {})
-    return {
-        "type": "function",
-        "name": func.get("name", ""),
-        "description": func.get("description", ""),
-        "parameters": func.get("parameters", {}),
-    }
-
-
-def _convert_tool_choice_to_responses(choice: str | dict) -> str | dict:
-    if isinstance(choice, str):
-        return choice  # "auto" / "none" / "required"
-    if isinstance(choice, dict):
-        func = choice.get("function", {})
-        return {"type": "function", "name": func.get("name", "")}
-    return "auto"
-
-
-def _make_chunk_json(
-    state: dict,
-    delta: dict,
-    finish_reason: str | None = None,
-    usage: dict | None = None,
-) -> str:
-    chunk = {
-        "id": state.get("id", ""),
-        "object": "chat.completion.chunk",
-        "created": int(time.time()),
-        "model": state.get("model", ""),
-        "choices": [{
-            "index": 0,
-            "delta": delta,
-            "finish_reason": finish_reason,
-        }],
-    }
-    if usage:
-        chunk["usage"] = usage
-    return f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+    @staticmethod
+    def _make_chunk_json(
+        state: dict,
+        delta: dict,
+        finish_reason: str | None = None,
+        usage: dict | None = None,
+    ) -> str:
+        chunk = {
+            "id": state.get("id", ""),
+            "object": "chat.completion.chunk",
+            "created": int(time.time()),
+            "model": state.get("model", ""),
+            "choices": [{
+                "index": 0,
+                "delta": delta,
+                "finish_reason": finish_reason,
+            }],
+        }
+        if usage:
+            chunk["usage"] = usage
+        return f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"

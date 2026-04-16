@@ -42,7 +42,7 @@ class ResponsesFromMessagesConverter(BaseConverter):
             })
         elif isinstance(input_data, list):
             for item in input_data:
-                _convert_responses_input_item(item, claude_messages)
+                self._convert_responses_input_item(item, claude_messages)
 
         result: dict[str, Any] = {
             "model": map_model(request["model"], "openai_to_claude"),
@@ -57,9 +57,9 @@ class ResponsesFromMessagesConverter(BaseConverter):
         if request.get("top_p") is not None:
             result["top_p"] = request["top_p"]
         if request.get("tools"):
-            result["tools"] = [_convert_tool_to_claude(t) for t in request["tools"]]
+            result["tools"] = [self._convert_tool_to_claude(t) for t in request["tools"]]
         if request.get("tool_choice") is not None:
-            result["tool_choice"] = _convert_tool_choice_to_claude(request["tool_choice"])
+            result["tool_choice"] = self._convert_tool_choice_to_claude(request["tool_choice"])
 
         return result
 
@@ -77,7 +77,7 @@ class ResponsesFromMessagesConverter(BaseConverter):
             elif block["type"] == "tool_use":
                 # 先把累积的文本输出
                 if text_parts:
-                    output.append(_make_message_output(text_parts))
+                    output.append(self._make_message_output(text_parts))
                     text_parts = []
                 output.append({
                     "type": "function_call",
@@ -88,7 +88,7 @@ class ResponsesFromMessagesConverter(BaseConverter):
                 })
 
         if text_parts:
-            output.append(_make_message_output(text_parts))
+            output.append(self._make_message_output(text_parts))
 
         stop_reason = response.get("stop_reason", "end_turn")
         status = "incomplete" if stop_reason == "max_tokens" else "completed"
@@ -125,9 +125,9 @@ class ResponsesFromMessagesConverter(BaseConverter):
             state["model"] = msg.get("model", "")
             state["output_index"] = -1
             state["content_index"] = 0
-            resp_obj = _make_response_obj(resp_id, state["model"], "in_progress")
-            results.append(_resp_event("response.created", {"response": resp_obj}))
-            results.append(_resp_event("response.in_progress", {"response": resp_obj}))
+            resp_obj = self._make_response_obj(resp_id, state["model"], "in_progress")
+            results.append(self._resp_event("response.created", {"response": resp_obj}))
+            results.append(self._resp_event("response.in_progress", {"response": resp_obj}))
 
         elif event_type == "content_block_start":
             block = event.get("content_block", {})
@@ -136,8 +136,8 @@ class ResponsesFromMessagesConverter(BaseConverter):
 
             if block.get("type") == "text":
                 item = {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": ""}]}
-                results.append(_resp_event("response.output_item.added", {"output_index": idx, "item": item}))
-                results.append(_resp_event("response.content_part.added", {
+                results.append(self._resp_event("response.output_item.added", {"output_index": idx, "item": item}))
+                results.append(self._resp_event("response.content_part.added", {
                     "output_index": idx, "content_index": 0,
                     "part": {"type": "output_text", "text": ""},
                 }))
@@ -151,26 +151,26 @@ class ResponsesFromMessagesConverter(BaseConverter):
                     "name": block.get("name", ""),
                     "arguments": "",
                 }
-                results.append(_resp_event("response.output_item.added", {"output_index": idx, "item": item}))
+                results.append(self._resp_event("response.output_item.added", {"output_index": idx, "item": item}))
 
         elif event_type == "content_block_delta":
             delta = event.get("delta", {})
             idx = state.get("output_index", 0)
 
             if delta.get("type") == "text_delta":
-                results.append(_resp_event("response.output_text.delta", {
+                results.append(self._resp_event("response.output_text.delta", {
                     "output_index": idx, "content_index": 0,
                     "delta": delta.get("text", ""),
                 }))
             elif delta.get("type") == "input_json_delta":
-                results.append(_resp_event("response.function_call_arguments.delta", {
+                results.append(self._resp_event("response.function_call_arguments.delta", {
                     "output_index": idx,
                     "delta": delta.get("partial_json", ""),
                 }))
 
         elif event_type == "content_block_stop":
             idx = state.get("output_index", 0)
-            results.append(_resp_event("response.output_item.done", {"output_index": idx, "item": {}}))
+            results.append(self._resp_event("response.output_item.done", {"output_index": idx, "item": {}}))
 
         elif event_type == "message_delta":
             delta = event.get("delta", {})
@@ -181,7 +181,7 @@ class ResponsesFromMessagesConverter(BaseConverter):
             state["output_tokens"] = usage.get("output_tokens", 0)
 
         elif event_type == "message_stop":
-            resp_obj = _make_response_obj(
+            resp_obj = self._make_response_obj(
                 state.get("resp_id", ""), state.get("model", ""),
                 state.get("status", "completed"),
             )
@@ -190,92 +190,91 @@ class ResponsesFromMessagesConverter(BaseConverter):
                 "output_tokens": state.get("output_tokens", 0),
                 "total_tokens": state.get("output_tokens", 0),
             }
-            results.append(_resp_event("response.completed", {"response": resp_obj}))
+            results.append(self._resp_event("response.completed", {"response": resp_obj}))
 
         return results
 
+    # ── 工具方法 ──────────────────────────────────────────────
 
-# ── 工具函数 ──────────────────────────────────────────────────
+    @staticmethod
+    def _convert_responses_input_item(item: dict, messages: list[dict]) -> None:
+        """将 Responses input 数组中的单个 item 转换为 Messages 消息。"""
+        item_type = item.get("type", "message")
 
+        if item_type == "message":
+            role = item.get("role", "user")
+            content = item.get("content", "")
+            if isinstance(content, str):
+                messages.append({"role": role, "content": [{"type": "text", "text": content}]})
+            elif isinstance(content, list):
+                blocks: list[dict] = []
+                for part in content:
+                    ptype = part.get("type", "")
+                    if ptype in ("input_text", "output_text", "text"):
+                        blocks.append({"type": "text", "text": part.get("text", "")})
+                if blocks:
+                    messages.append({"role": role, "content": blocks})
 
-def _convert_responses_input_item(item: dict, messages: list[dict]) -> None:
-    """将 Responses input 数组中的单个 item 转换为 Messages 消息。"""
-    item_type = item.get("type", "message")
+        elif item_type == "function_call":
+            args = item.get("arguments", "")
+            messages.append({
+                "role": "assistant",
+                "content": [{
+                    "type": "tool_use",
+                    "id": item.get("call_id", item.get("id", "")),
+                    "name": item.get("name", ""),
+                    "input": json.loads(args) if isinstance(args, str) and args else {},
+                }],
+            })
 
-    if item_type == "message":
-        role = item.get("role", "user")
-        content = item.get("content", "")
-        if isinstance(content, str):
-            messages.append({"role": role, "content": [{"type": "text", "text": content}]})
-        elif isinstance(content, list):
-            blocks: list[dict] = []
-            for part in content:
-                ptype = part.get("type", "")
-                if ptype in ("input_text", "output_text", "text"):
-                    blocks.append({"type": "text", "text": part.get("text", "")})
-            if blocks:
-                messages.append({"role": role, "content": blocks})
+        elif item_type == "function_call_output":
+            messages.append({
+                "role": "user",
+                "content": [{
+                    "type": "tool_result",
+                    "tool_use_id": item.get("call_id", ""),
+                    "content": item.get("output", ""),
+                }],
+            })
 
-    elif item_type == "function_call":
-        args = item.get("arguments", "")
-        messages.append({
+    @staticmethod
+    def _convert_tool_to_claude(tool: dict) -> dict:
+        return {
+            "name": tool.get("name", ""),
+            "description": tool.get("description", ""),
+            "input_schema": tool.get("parameters", {}),
+        }
+
+    @staticmethod
+    def _convert_tool_choice_to_claude(choice: str | dict) -> dict:
+        if isinstance(choice, str):
+            mapping = {"auto": "auto", "required": "any", "none": "none"}
+            return {"type": mapping.get(choice, "auto")}
+        if isinstance(choice, dict) and choice.get("type") == "function":
+            return {"type": "tool", "name": choice.get("name", "")}
+        return {"type": "auto"}
+
+    @staticmethod
+    def _make_message_output(text_parts: list[str]) -> dict:
+        return {
+            "type": "message",
             "role": "assistant",
-            "content": [{
-                "type": "tool_use",
-                "id": item.get("call_id", item.get("id", "")),
-                "name": item.get("name", ""),
-                "input": json.loads(args) if isinstance(args, str) and args else {},
-            }],
-        })
+            "content": [{"type": "output_text", "text": "\n".join(text_parts)}],
+        }
 
-    elif item_type == "function_call_output":
-        messages.append({
-            "role": "user",
-            "content": [{
-                "type": "tool_result",
-                "tool_use_id": item.get("call_id", ""),
-                "content": item.get("output", ""),
-            }],
-        })
+    @staticmethod
+    def _make_response_obj(resp_id: str, model: str, status: str) -> dict:
+        return {
+            "id": resp_id,
+            "object": "response",
+            "created_at": int(time.time()),
+            "model": model,
+            "status": status,
+            "output": [],
+        }
 
-
-def _convert_tool_to_claude(tool: dict) -> dict:
-    return {
-        "name": tool.get("name", ""),
-        "description": tool.get("description", ""),
-        "input_schema": tool.get("parameters", {}),
-    }
-
-
-def _convert_tool_choice_to_claude(choice: str | dict) -> dict:
-    if isinstance(choice, str):
-        mapping = {"auto": "auto", "required": "any", "none": "none"}
-        return {"type": mapping.get(choice, "auto")}
-    if isinstance(choice, dict) and choice.get("type") == "function":
-        return {"type": "tool", "name": choice.get("name", "")}
-    return {"type": "auto"}
-
-
-def _make_message_output(text_parts: list[str]) -> dict:
-    return {
-        "type": "message",
-        "role": "assistant",
-        "content": [{"type": "output_text", "text": "\n".join(text_parts)}],
-    }
-
-
-def _make_response_obj(resp_id: str, model: str, status: str) -> dict:
-    return {
-        "id": resp_id,
-        "object": "response",
-        "created_at": int(time.time()),
-        "model": model,
-        "status": status,
-        "output": [],
-    }
-
-
-def _resp_event(event_type: str, data: dict) -> str:
-    """生成 Responses SSE 完整块（event + data + 空行）。"""
-    payload = json.dumps({"type": event_type, **data}, ensure_ascii=False)
-    return f"event: {event_type}\ndata: {payload}\n\n"
+    @staticmethod
+    def _resp_event(event_type: str, data: dict) -> str:
+        """生成 Responses SSE 完整块（event + data + 空行）。"""
+        payload = json.dumps({"type": event_type, **data}, ensure_ascii=False)
+        return f"event: {event_type}\ndata: {payload}\n\n"

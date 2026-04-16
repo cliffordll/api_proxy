@@ -42,18 +42,18 @@ class CompletionsFromMessagesConverter(BaseConverter):
             tool_call_id = msg.get("tool_call_id")
 
             if role == "system":
-                system_text = content if isinstance(content, str) else _merge_text_parts(content)
+                system_text = content if isinstance(content, str) else self._merge_text_parts(content)
 
             elif role == "user":
                 claude_messages.append({
                     "role": "user",
-                    "content": _convert_content_to_claude(content),
+                    "content": self._convert_content_to_claude(content),
                 })
 
             elif role == "assistant":
                 blocks: list[dict] = []
                 if content:
-                    text = content if isinstance(content, str) else _merge_text_parts(content)
+                    text = content if isinstance(content, str) else self._merge_text_parts(content)
                     if text:
                         blocks.append({"type": "text", "text": text})
                 if tool_calls:
@@ -93,9 +93,9 @@ class CompletionsFromMessagesConverter(BaseConverter):
             stop = request["stop"]
             result["stop_sequences"] = [stop] if isinstance(stop, str) else stop
         if request.get("tools"):
-            result["tools"] = [_convert_tool_to_claude(t) for t in request["tools"]]
+            result["tools"] = [self._convert_tool_to_claude(t) for t in request["tools"]]
         if request.get("tool_choice") is not None:
-            result["tool_choice"] = _convert_tool_choice_to_claude(request["tool_choice"])
+            result["tool_choice"] = self._convert_tool_choice_to_claude(request["tool_choice"])
 
         return result
 
@@ -162,13 +162,13 @@ class CompletionsFromMessagesConverter(BaseConverter):
             state["id"] = f"chatcmpl-{msg.get('id', '')}"
             state["model"] = msg.get("model", "")
             state["tool_call_index"] = -1
-            results.append(_make_chunk_json(state, delta={"role": "assistant"}))
+            results.append(self._make_chunk_json(state, delta={"role": "assistant"}))
 
         elif event_type == "content_block_start":
             block = event.get("content_block", {})
             if block.get("type") == "tool_use":
                 state["tool_call_index"] = state.get("tool_call_index", -1) + 1
-                results.append(_make_chunk_json(state, delta={
+                results.append(self._make_chunk_json(state, delta={
                     "tool_calls": [{
                         "index": state["tool_call_index"],
                         "id": block.get("id", ""),
@@ -180,9 +180,9 @@ class CompletionsFromMessagesConverter(BaseConverter):
         elif event_type == "content_block_delta":
             delta = event.get("delta", {})
             if delta.get("type") == "text_delta":
-                results.append(_make_chunk_json(state, delta={"content": delta.get("text", "")}))
+                results.append(self._make_chunk_json(state, delta={"content": delta.get("text", "")}))
             elif delta.get("type") == "input_json_delta":
-                results.append(_make_chunk_json(state, delta={
+                results.append(self._make_chunk_json(state, delta={
                     "tool_calls": [{
                         "index": state.get("tool_call_index", 0),
                         "function": {"arguments": delta.get("partial_json", "")},
@@ -195,7 +195,7 @@ class CompletionsFromMessagesConverter(BaseConverter):
             stop_map = {"end_turn": "stop", "max_tokens": "length", "tool_use": "tool_calls"}
             usage = event.get("usage", {})
             output_tokens = usage.get("output_tokens", 0)
-            results.append(_make_chunk_json(
+            results.append(self._make_chunk_json(
                 state,
                 delta={},
                 finish_reason=stop_map.get(stop_reason, "stop"),
@@ -207,59 +207,58 @@ class CompletionsFromMessagesConverter(BaseConverter):
 
         return results
 
+    # ── 工具方法 ──────────────────────────────────────────────
 
-# ── 工具函数 ──────────────────────────────────────────────────
+    @staticmethod
+    def _convert_content_to_claude(content: str | list | None) -> str | list[dict]:
+        if content is None:
+            return ""
+        if isinstance(content, str):
+            return [{"type": "text", "text": content}]
+        blocks: list[dict] = []
+        for part in content:
+            if part.get("type") == "text":
+                blocks.append({"type": "text", "text": part["text"]})
+        return blocks or ""
 
+    @staticmethod
+    def _merge_text_parts(content: list) -> str:
+        return "\n".join(p.get("text", "") for p in content if p.get("type") == "text")
 
-def _convert_content_to_claude(content: str | list | None) -> str | list[dict]:
-    if content is None:
-        return ""
-    if isinstance(content, str):
-        return [{"type": "text", "text": content}]
-    blocks: list[dict] = []
-    for part in content:
-        if part.get("type") == "text":
-            blocks.append({"type": "text", "text": part["text"]})
-    return blocks or ""
+    @staticmethod
+    def _convert_tool_to_claude(tool: dict) -> dict:
+        func = tool["function"]
+        return {
+            "name": func["name"],
+            "description": func.get("description", ""),
+            "input_schema": func.get("parameters", {}),
+        }
 
+    @staticmethod
+    def _convert_tool_choice_to_claude(choice: str | dict) -> dict:
+        if isinstance(choice, str):
+            mapping = {"none": "none", "auto": "auto", "required": "any"}
+            return {"type": mapping.get(choice, "auto")}
+        return {"type": "tool", "name": choice["function"]["name"]}
 
-def _merge_text_parts(content: list) -> str:
-    return "\n".join(p.get("text", "") for p in content if p.get("type") == "text")
-
-
-def _convert_tool_to_claude(tool: dict) -> dict:
-    func = tool["function"]
-    return {
-        "name": func["name"],
-        "description": func.get("description", ""),
-        "input_schema": func.get("parameters", {}),
-    }
-
-
-def _convert_tool_choice_to_claude(choice: str | dict) -> dict:
-    if isinstance(choice, str):
-        mapping = {"none": "none", "auto": "auto", "required": "any"}
-        return {"type": mapping.get(choice, "auto")}
-    return {"type": "tool", "name": choice["function"]["name"]}
-
-
-def _make_chunk_json(
-    state: dict,
-    delta: dict,
-    finish_reason: str | None = None,
-    usage: dict | None = None,
-) -> str:
-    chunk = {
-        "id": state.get("id", ""),
-        "object": "chat.completion.chunk",
-        "created": int(time.time()),
-        "model": state.get("model", ""),
-        "choices": [{
-            "index": 0,
-            "delta": delta,
-            "finish_reason": finish_reason,
-        }],
-    }
-    if usage:
-        chunk["usage"] = usage
-    return f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+    @staticmethod
+    def _make_chunk_json(
+        state: dict,
+        delta: dict,
+        finish_reason: str | None = None,
+        usage: dict | None = None,
+    ) -> str:
+        chunk = {
+            "id": state.get("id", ""),
+            "object": "chat.completion.chunk",
+            "created": int(time.time()),
+            "model": state.get("model", ""),
+            "choices": [{
+                "index": 0,
+                "delta": delta,
+                "finish_reason": finish_reason,
+            }],
+        }
+        if usage:
+            chunk["usage"] = usage
+        return f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"

@@ -103,9 +103,9 @@ class MessagesFromCompletionsConverter(BaseConverter):
         if request.get("stop_sequences"):
             result["stop"] = request["stop_sequences"]
         if request.get("tools"):
-            result["tools"] = [_convert_tool_to_openai(t) for t in request["tools"]]
+            result["tools"] = [self._convert_tool_to_openai(t) for t in request["tools"]]
         if request.get("tool_choice") is not None:
-            result["tool_choice"] = _convert_tool_choice_to_openai(request["tool_choice"])
+            result["tool_choice"] = self._convert_tool_choice_to_openai(request["tool_choice"])
 
         return result
 
@@ -186,7 +186,7 @@ class MessagesFromCompletionsConverter(BaseConverter):
             state["msg_id"] = msg_id
             state["model"] = chunk.get("model", "")
 
-            results.append(_event_json("message_start", {
+            results.append(self._event_json("message_start", {
                 "message": {
                     "id": msg_id,
                     "type": "message",
@@ -196,14 +196,14 @@ class MessagesFromCompletionsConverter(BaseConverter):
                     "usage": {"input_tokens": 0, "output_tokens": 0},
                 }
             }))
-            results.append(_event_json("content_block_start", {
+            results.append(self._event_json("content_block_start", {
                 "index": 0,
                 "content_block": {"type": "text", "text": ""},
             }))
 
         # text content
         if delta.get("content"):
-            results.append(_event_json("content_block_delta", {
+            results.append(self._event_json("content_block_delta", {
                 "index": state.get("content_block_index", 0),
                 "delta": {"type": "text_delta", "text": delta["content"]},
             }))
@@ -215,7 +215,7 @@ class MessagesFromCompletionsConverter(BaseConverter):
 
                 if tc_index > state.get("current_tool_index", -1):
                     if state.get("content_block_open"):
-                        results.append(_event_json("content_block_stop", {
+                        results.append(self._event_json("content_block_stop", {
                             "index": state["content_block_index"],
                         }))
 
@@ -223,7 +223,7 @@ class MessagesFromCompletionsConverter(BaseConverter):
                     state["current_tool_index"] = tc_index
                     state["content_block_open"] = True
 
-                    results.append(_event_json("content_block_start", {
+                    results.append(self._event_json("content_block_start", {
                         "index": state["content_block_index"],
                         "content_block": {
                             "type": "tool_use",
@@ -236,7 +236,7 @@ class MessagesFromCompletionsConverter(BaseConverter):
                 func = tc.get("function", {})
                 args = func.get("arguments", "") if func else ""
                 if args:
-                    results.append(_event_json("content_block_delta", {
+                    results.append(self._event_json("content_block_delta", {
                         "index": state["content_block_index"],
                         "delta": {"type": "input_json_delta", "partial_json": args},
                     }))
@@ -258,48 +258,47 @@ class MessagesFromCompletionsConverter(BaseConverter):
         results: list[str] = []
 
         if state.get("content_block_open"):
-            results.append(_event_json("content_block_stop", {
+            results.append(self._event_json("content_block_stop", {
                 "index": state.get("content_block_index", 0),
             }))
             state["content_block_open"] = False
 
-        results.append(_event_json("message_delta", {
+        results.append(self._event_json("message_delta", {
             "delta": {"stop_reason": state.get("stop_reason", "end_turn")},
             "usage": {"output_tokens": state.get("output_tokens", 0)},
         }))
-        results.append(_event_json("message_stop", {}))
+        results.append(self._event_json("message_stop", {}))
 
         return results
 
+    # ── 工具方法 ──────────────────────────────────────────────
 
-# ── 工具函数 ──────────────────────────────────────────────────
+    @staticmethod
+    def _convert_tool_to_openai(tool: dict) -> dict:
+        return {
+            "type": "function",
+            "function": {
+                "name": tool["name"],
+                "description": tool.get("description", ""),
+                "parameters": tool.get("input_schema", {}),
+            },
+        }
 
-
-def _convert_tool_to_openai(tool: dict) -> dict:
-    return {
-        "type": "function",
-        "function": {
-            "name": tool["name"],
-            "description": tool.get("description", ""),
-            "parameters": tool.get("input_schema", {}),
-        },
-    }
-
-
-def _convert_tool_choice_to_openai(choice: dict) -> str | dict:
-    ctype = choice.get("type", "auto")
-    if ctype == "none":
-        return "none"
-    if ctype == "auto":
+    @staticmethod
+    def _convert_tool_choice_to_openai(choice: dict) -> str | dict:
+        ctype = choice.get("type", "auto")
+        if ctype == "none":
+            return "none"
+        if ctype == "auto":
+            return "auto"
+        if ctype == "any":
+            return "required"
+        if ctype == "tool":
+            return {"type": "function", "function": {"name": choice["name"]}}
         return "auto"
-    if ctype == "any":
-        return "required"
-    if ctype == "tool":
-        return {"type": "function", "function": {"name": choice["name"]}}
-    return "auto"
 
-
-def _event_json(event_type: str, data: dict) -> str:
-    """生成 Messages SSE 完整块（event + data + 空行）。"""
-    payload = {"type": event_type, **data}
-    return f"event: {event_type}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+    @staticmethod
+    def _event_json(event_type: str, data: dict) -> str:
+        """生成 Messages SSE 完整块（event + data + 空行）。"""
+        payload = {"type": event_type, **data}
+        return f"event: {event_type}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"

@@ -42,7 +42,7 @@ class ResponsesFromCompletionsConverter(BaseConverter):
             messages.append({"role": "user", "content": input_data})
         elif isinstance(input_data, list):
             for item in input_data:
-                _convert_input_item_to_completions(item, messages)
+                self._convert_input_item_to_completions(item, messages)
 
         result: dict[str, Any] = {
             "model": request["model"],
@@ -56,9 +56,9 @@ class ResponsesFromCompletionsConverter(BaseConverter):
         if request.get("top_p") is not None:
             result["top_p"] = request["top_p"]
         if request.get("tools"):
-            result["tools"] = [_convert_tool_to_completions(t) for t in request["tools"]]
+            result["tools"] = [self._convert_tool_to_completions(t) for t in request["tools"]]
         if request.get("tool_choice") is not None:
-            result["tool_choice"] = _convert_tool_choice_to_completions(request["tool_choice"])
+            result["tool_choice"] = self._convert_tool_choice_to_completions(request["tool_choice"])
 
         return result
 
@@ -126,7 +126,7 @@ class ResponsesFromCompletionsConverter(BaseConverter):
                     "total_tokens": state.get("output_tokens", 0),
                 },
             }
-            return [_resp_event("response.completed", {"response": resp_obj})]
+            return [self._resp_event("response.completed", {"response": resp_obj})]
 
         chunk = self._to_dict(event)
         state = self._stream_state
@@ -149,17 +149,17 @@ class ResponsesFromCompletionsConverter(BaseConverter):
                 "created_at": int(time.time()),
                 "model": state["model"], "status": "in_progress", "output": [],
             }
-            results.append(_resp_event("response.created", {"response": resp_obj}))
-            results.append(_resp_event("response.in_progress", {"response": resp_obj}))
+            results.append(self._resp_event("response.created", {"response": resp_obj}))
+            results.append(self._resp_event("response.in_progress", {"response": resp_obj}))
 
             # 预创建 message output item
             state["output_index"] = 0
             item = {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": ""}]}
-            results.append(_resp_event("response.output_item.added", {"output_index": 0, "item": item}))
+            results.append(self._resp_event("response.output_item.added", {"output_index": 0, "item": item}))
 
         # text content
         if delta.get("content"):
-            results.append(_resp_event("response.output_text.delta", {
+            results.append(self._resp_event("response.output_text.delta", {
                 "output_index": 0, "content_index": 0,
                 "delta": delta["content"],
             }))
@@ -178,14 +178,14 @@ class ResponsesFromCompletionsConverter(BaseConverter):
                         "name": tc.get("function", {}).get("name", "") if tc.get("function") else "",
                         "arguments": "",
                     }
-                    results.append(_resp_event("response.output_item.added", {
+                    results.append(self._resp_event("response.output_item.added", {
                         "output_index": state["output_index"], "item": item,
                     }))
 
                 func = tc.get("function", {})
                 args = func.get("arguments", "") if func else ""
                 if args:
-                    results.append(_resp_event("response.function_call_arguments.delta", {
+                    results.append(self._resp_event("response.function_call_arguments.delta", {
                         "output_index": state["output_index"],
                         "delta": args,
                     }))
@@ -199,63 +199,62 @@ class ResponsesFromCompletionsConverter(BaseConverter):
 
         return results
 
+    # ── 工具方法 ──────────────────────────────────────────────
 
-# ── 工具函数 ──────────────────────────────────────────────────
+    @staticmethod
+    def _convert_input_item_to_completions(item: dict, messages: list[dict]) -> None:
+        item_type = item.get("type", "message")
+        if item_type == "message":
+            role = item.get("role", "user")
+            content = item.get("content", "")
+            if isinstance(content, str):
+                messages.append({"role": role, "content": content})
+            elif isinstance(content, list):
+                text = "\n".join(
+                    p.get("text", "") for p in content
+                    if p.get("type") in ("input_text", "output_text", "text")
+                )
+                messages.append({"role": role, "content": text})
+        elif item_type == "function_call":
+            messages.append({
+                "role": "assistant",
+                "tool_calls": [{
+                    "id": item.get("call_id", item.get("id", "")),
+                    "type": "function",
+                    "function": {
+                        "name": item.get("name", ""),
+                        "arguments": item.get("arguments", ""),
+                    },
+                }],
+            })
+        elif item_type == "function_call_output":
+            messages.append({
+                "role": "tool",
+                "tool_call_id": item.get("call_id", ""),
+                "content": item.get("output", ""),
+            })
 
+    @staticmethod
+    def _convert_tool_to_completions(tool: dict) -> dict:
+        return {
+            "type": "function",
+            "function": {
+                "name": tool.get("name", ""),
+                "description": tool.get("description", ""),
+                "parameters": tool.get("parameters", {}),
+            },
+        }
 
-def _convert_input_item_to_completions(item: dict, messages: list[dict]) -> None:
-    item_type = item.get("type", "message")
-    if item_type == "message":
-        role = item.get("role", "user")
-        content = item.get("content", "")
-        if isinstance(content, str):
-            messages.append({"role": role, "content": content})
-        elif isinstance(content, list):
-            text = "\n".join(
-                p.get("text", "") for p in content
-                if p.get("type") in ("input_text", "output_text", "text")
-            )
-            messages.append({"role": role, "content": text})
-    elif item_type == "function_call":
-        messages.append({
-            "role": "assistant",
-            "tool_calls": [{
-                "id": item.get("call_id", item.get("id", "")),
-                "type": "function",
-                "function": {
-                    "name": item.get("name", ""),
-                    "arguments": item.get("arguments", ""),
-                },
-            }],
-        })
-    elif item_type == "function_call_output":
-        messages.append({
-            "role": "tool",
-            "tool_call_id": item.get("call_id", ""),
-            "content": item.get("output", ""),
-        })
+    @staticmethod
+    def _convert_tool_choice_to_completions(choice: str | dict) -> str | dict:
+        if isinstance(choice, str):
+            return choice  # "auto" / "required" / "none" 直接透传
+        if isinstance(choice, dict) and choice.get("type") == "function":
+            return {"type": "function", "function": {"name": choice.get("name", "")}}
+        return "auto"
 
-
-def _convert_tool_to_completions(tool: dict) -> dict:
-    return {
-        "type": "function",
-        "function": {
-            "name": tool.get("name", ""),
-            "description": tool.get("description", ""),
-            "parameters": tool.get("parameters", {}),
-        },
-    }
-
-
-def _convert_tool_choice_to_completions(choice: str | dict) -> str | dict:
-    if isinstance(choice, str):
-        return choice  # "auto" / "required" / "none" 直接透传
-    if isinstance(choice, dict) and choice.get("type") == "function":
-        return {"type": "function", "function": {"name": choice.get("name", "")}}
-    return "auto"
-
-
-def _resp_event(event_type: str, data: dict) -> str:
-    """生成 Responses SSE 完整块（event + data + 空行）。"""
-    payload = json.dumps({"type": event_type, **data}, ensure_ascii=False)
-    return f"event: {event_type}\ndata: {payload}\n\n"
+    @staticmethod
+    def _resp_event(event_type: str, data: dict) -> str:
+        """生成 Responses SSE 完整块（event + data + 空行）。"""
+        payload = json.dumps({"type": event_type, **data}, ensure_ascii=False)
+        return f"event: {event_type}\ndata: {payload}\n\n"
