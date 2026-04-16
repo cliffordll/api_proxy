@@ -5,11 +5,13 @@ from __future__ import annotations
 import asyncio
 
 from cli.client import ChatClient
+from cli.commands import CommandHandler
+from cli.conversation import Conversation
 from cli.display import Display
 
 
 class Repl:
-    """交互式 REPL，组装 ChatClient + Display。"""
+    """交互式 REPL，组装 ChatClient + Conversation + CommandHandler + Display。"""
 
     def __init__(self, config: dict):
         self.config = config
@@ -18,8 +20,9 @@ class Repl:
             route=config["route"],
             api_key=config["api_key"],
         )
+        self.conversation = Conversation()
         self.display = Display()
-        self.messages: list[dict] = []
+        self.commands = CommandHandler(config, self.conversation, self.display)
 
     async def run(self):
         """主循环。"""
@@ -42,8 +45,17 @@ class Repl:
             if user_input in ("/quit", "/exit"):
                 print("Bye!")
                 break
+            if self.commands.handle(user_input):
+                # 路由切换后需要更新 client
+                if self.client.route != self.config["route"]:
+                    self.client = ChatClient(
+                        base_url=self.config["base_url"],
+                        route=self.config["route"],
+                        api_key=self.config["api_key"],
+                    )
+                continue
 
-            self.messages.append({"role": "user", "content": user_input})
+            self.conversation.add_user(user_input)
 
             try:
                 if self.config["stream"]:
@@ -56,25 +68,25 @@ class Repl:
     async def _sync_chat(self):
         """非流式对话。"""
         resp = await self.client.send(
-            self.messages, self.config["model"], stream=False
+            self.conversation.get_messages(), self.config["model"], stream=False
         )
         text, tool_calls = self.client.parse_response(resp)
         self.display.print_response(text)
-        self.messages.append({"role": "assistant", "content": text})
+        self.conversation.add_assistant(text, tool_calls)
 
     async def _stream_chat(self):
         """流式对话。"""
         self.display.print_stream_start()
         full_text = []
         async for data in self.client.send_stream(
-            self.messages, self.config["model"]
+            self.conversation.get_messages(), self.config["model"]
         ):
             chunk = self.client.parse_stream_chunk(data)
             if chunk:
                 self.display.print_stream_chunk(chunk)
                 full_text.append(chunk)
         self.display.print_stream_end()
-        self.messages.append({"role": "assistant", "content": "".join(full_text)})
+        self.conversation.add_assistant("".join(full_text))
 
 
 async def run_single(config: dict, message: str):

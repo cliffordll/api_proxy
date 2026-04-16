@@ -54,16 +54,16 @@
 
 | # | 任务 | 说明 | 产出文件 | 状态 |
 |---|------|------|---------|------|
-| 3.1 | ChatClient 流式 | SSE 解析 | `cli/client.py` | 待开始 |
-| 3.2 | Display 流式 | 逐字显示 | `cli/display.py` | 待开始 |
-| 3.3 | REPL 适配 | 流式/非流式分支 | `cli/repl.py` | 待开始 |
-| 3.4 | --stream / --no-stream | 命令行参数 | `main.py` | 待开始 |
+| 3.1 | ChatClient 流式 | SSE 解析 | `cli/client.py` | 完成 |
+| 3.2 | Display 流式 | 逐字显示 | `cli/display.py` | 完成 |
+| 3.3 | REPL 适配 | 流式/非流式分支 | `cli/repl.py` | 完成 |
+| 3.4 | --stream / --no-stream | 命令行参数 | `main.py` | 完成 |
 
 **验收**：流式输出逐字显示
 
 **执行记录**：
 
-> 待填写
+> Phase 2 已提前完成全部流式功能，Phase 3 无额外改动
 
 ---
 
@@ -71,14 +71,15 @@
 
 | # | 任务 | 说明 | 产出文件 | 状态 |
 |---|------|------|---------|------|
-| 4.1 | Conversation | 对话历史管理 | `cli/conversation.py` | 待开始 |
-| 4.2 | REPL 接入 | 每轮更新历史 | `cli/repl.py` | 待开始 |
+| 4.1 | Conversation | 对话历史管理 | `cli/conversation.py` | 完成 |
+| 4.2 | REPL 接入 | 每轮更新历史 | `cli/repl.py` | 完成 |
 
 **验收**：连续多轮对话，AI 能记住上文
 
 **执行记录**：
 
-> 待填写
+> - 4.1 Conversation：add_user/add_assistant/add_tool_result/get_messages/clear
+> - 4.2 REPL：self.messages 替换为 self.conversation，每轮更新历史
 
 ---
 
@@ -86,14 +87,15 @@
 
 | # | 任务 | 说明 | 产出文件 | 状态 |
 |---|------|------|---------|------|
-| 5.1 | CommandHandler | 命令解析 + 分发 | `cli/commands.py` | 待开始 |
-| 5.2 | REPL 接入 | 斜杠命令判断 | `cli/repl.py` | 待开始 |
+| 5.1 | CommandHandler | 命令解析 + 分发 | `cli/commands.py` | 完成 |
+| 5.2 | REPL 接入 | 斜杠命令判断 + 路由切换同步 client | `cli/repl.py` | 完成 |
 
 **验收**：所有斜杠命令可用
 
 **执行记录**：
 
-> 待填写
+> - 5.1 CommandHandler：/help /model /route /stream /history /clear，未知命令提示
+> - 5.2 REPL：命令前置判断，路由切换后重建 ChatClient
 
 ---
 
