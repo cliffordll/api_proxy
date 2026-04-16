@@ -4,10 +4,57 @@ from __future__ import annotations
 
 import asyncio
 
+from prompt_toolkit import PromptSession
+from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.document import Document
+
 from cli.client import ChatClient
 from cli.commands import CommandHandler
 from cli.conversation import Conversation
 from cli.display import Display
+
+
+COMMANDS = ["/help", "/model", "/models", "/route", "/stream", "/history", "/clear", "/quit", "/exit"]
+ROUTES = ["completions", "messages", "responses"]
+STREAM_OPTIONS = ["on", "off"]
+
+
+class DynamicCompleter(Completer):
+    """根据输入上下文动态补全。"""
+
+    def __init__(self, models: list[str] | None = None):
+        self.models = models or []
+
+    def get_completions(self, document: Document, complete_event):
+        text = document.text_before_cursor
+        words = text.split()
+
+        if not text or text == "/":
+            # 输入 / 开头 → 补全命令
+            for cmd in COMMANDS:
+                if cmd.startswith(text):
+                    yield Completion(cmd, start_position=-len(text))
+        elif len(words) == 1 and text.startswith("/"):
+            # 命令输入中
+            for cmd in COMMANDS:
+                if cmd.startswith(words[0]):
+                    yield Completion(cmd, start_position=-len(words[0]))
+        elif len(words) >= 2 or (len(words) == 1 and text.endswith(" ")):
+            cmd = words[0].lower()
+            partial = words[1] if len(words) >= 2 else ""
+
+            if cmd == "/model":
+                for m in self.models:
+                    if m.startswith(partial):
+                        yield Completion(m, start_position=-len(partial))
+            elif cmd == "/route":
+                for r in ROUTES:
+                    if r.startswith(partial):
+                        yield Completion(r, start_position=-len(partial))
+            elif cmd == "/stream":
+                for s in STREAM_OPTIONS:
+                    if s.startswith(partial):
+                        yield Completion(s, start_position=-len(partial))
 
 
 class Repl:
@@ -23,6 +70,11 @@ class Repl:
         self.conversation = Conversation()
         self.display = Display()
         self.commands = CommandHandler(config, self.conversation, self.display, self.client)
+        self.available_models: list[str] = []
+
+    def _build_completer(self) -> DynamicCompleter:
+        """构建动态补全器。"""
+        return DynamicCompleter(models=self.available_models)
 
     async def run(self):
         """主循环。"""
@@ -36,11 +88,18 @@ class Repl:
         # 探测可用模型
         models = await self.client.list_models()
         self.display.print_models(models)
+        if models:
+            self.available_models = models
         print()
+
+        session = PromptSession(completer=self._build_completer())
 
         while True:
             try:
-                user_input = input("> ").strip()
+                user_input = await asyncio.get_event_loop().run_in_executor(
+                    None, lambda: session.prompt("> ")
+                )
+                user_input = user_input.strip()
             except (EOFError, KeyboardInterrupt):
                 print("\nBye!")
                 break
@@ -59,6 +118,8 @@ class Repl:
                         api_key=self.config["api_key"],
                     )
                     self.commands.client = self.client
+                # 更新补全词表（模型可能变了）
+                session.completer = self._build_completer()
                 continue
 
             self.conversation.add_user(user_input)

@@ -3,6 +3,7 @@ uvicorn>=0.29.0
 pyyaml>=6.0.1
 httpx>=0.27.0
 rich>=13.0.0           # CLI 终端美化
+prompt_toolkit>=3.0.0  # CLI 自动补全 + 输入历史
 openai>=1.30.0
 anthropic>=0.49.0
 pytest>=8.1.0
