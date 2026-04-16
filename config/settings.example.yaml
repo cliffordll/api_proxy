@@ -31,30 +31,34 @@ mappings:
 #              - openai/ollama:    需带 /v1（如 https://api.openai.com/v1、http://localhost:11434/v1）
 #              - httpx:            填完整基础地址，由 interface 决定路径
 #   provider:  客户端类型 — claude / openai / ollama / httpx / mockup
-#   interface: 上游接口类型 — messages / completions / responses
-#   converter: 转换器 — {输出格式}_from_{输入格式}
+#   from:      上游接口格式 — messages / completions / responses
+#              自动推导转换器：{路由名}_from_{from值}
+#              不配置则自动透传（上游格式 = 路由名，不做转换）
 
 routes:
   completions:
     path: /v1/chat/completions
     base_url: https://api.anthropic.com
     provider: claude
-    interface: messages
-    converter: completions_from_messages
+    from: messages
 
   responses:
     path: /v1/responses
     base_url: https://api.anthropic.com
     provider: claude
-    interface: messages
-    converter: responses_from_messages
-    
+    from: messages
+
   messages:
     path: /v1/messages
     base_url: https://api.openai.com/v1
     provider: openai
-    interface: completions
-    converter: messages_from_completions
+    from: completions
+
+# 透传示例（不配 from，上游格式和路由名相同，不做转换）:
+#  messages:
+#    path: /v1/messages
+#    base_url: http://localhost:11434/v1
+#    provider: httpx
 
 # ── 客户端配置 ────────────────────────────────────────────────
 

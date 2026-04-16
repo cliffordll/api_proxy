@@ -52,22 +52,19 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "path": "/v1/chat/completions",
         "base_url": "https://api.anthropic.com",
         "provider": "claude",
-        "interface": "messages",
-        "converter": "completions_from_messages",
+        "from": "messages",
     },
     "responses": {
         "path": "/v1/responses",
         "base_url": "https://api.anthropic.com",
         "provider": "claude",
-        "interface": "messages",
-        "converter": "responses_from_messages",
+        "from": "messages",
     },
     "messages": {
         "path": "/v1/messages",
         "base_url": "https://api.openai.com/v1",
         "provider": "openai",
-        "interface": "completions",
-        "converter": "messages_from_completions",
+        "from": "completions",
     },
 }
 
@@ -104,25 +101,36 @@ def load_providers(config_path: str = "config/settings.yaml") -> None:
 
     for name, conf in config.items():
         provider_name = conf["provider"]
-        converter_name = conf["converter"]
+        from_interface = conf.get("from")
 
         if provider_name not in provider_registry:
             raise ValueError(
                 f"Unknown provider '{provider_name}'. "
                 f"Available: {list(provider_registry.keys())}"
             )
-        if converter_name not in converter_registry:
-            raise ValueError(
-                f"Unknown converter '{converter_name}'. "
-                f"Available: {list(converter_registry.keys())}"
-            )
 
         client_cls = provider_registry[provider_name]
-        converter_cls = converter_registry[converter_name]
+
+        if from_interface and from_interface != name:
+            # 从路由名 + from 推导 converter: {name}_from_{from}
+            converter_name = f"{name}_from_{from_interface}"
+            if converter_name not in converter_registry:
+                raise ValueError(
+                    f"Unknown converter '{converter_name}' "
+                    f"(derived from route '{name}' + from '{from_interface}'). "
+                    f"Available: {list(converter_registry.keys())}"
+                )
+            converter_cls = converter_registry[converter_name]
+            interface = from_interface
+        else:
+            # 无 from → 透传，interface 默认等于路由名
+            from app.converters.passthrough import PassthroughConverter
+            converter_cls = PassthroughConverter
+            interface = name
 
         client = client_cls(
             base_url=conf["base_url"],
-            interface=conf["interface"],
+            interface=interface,
         )
         converter = converter_cls()
 
