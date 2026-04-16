@@ -40,13 +40,35 @@ pip install -r requirements.txt
 cp config/settings.example.yaml config/settings.yaml
 ```
 
-### 启动
+### 启动服务
 
 ```bash
-python main.py
+python main.py server
 ```
 
 服务默认监听 `http://0.0.0.0:8000`。
+
+### CLI 对话
+
+```bash
+# 交互模式
+python main.py chat
+
+# 单次对话
+python main.py chat "hello"
+
+# 指定参数
+python main.py chat --base-url http://localhost:8000 --route messages --model qwen2.5:3b
+```
+
+交互模式支持斜杠命令：`/help` `/model` `/route` `/stream` `/history` `/clear` `/quit`
+
+### 冒烟测试
+
+```bash
+python main.py test
+python main.py test --base-url http://remote:8000
+```
 
 ### 调试模式
 
@@ -54,7 +76,7 @@ python main.py
 
 ```bash
 cp config/settings.mockup.yaml config/settings.yaml
-python main.py
+python main.py server
 ```
 
 ### 验证
@@ -219,36 +241,27 @@ mappings:
 
 ```
 api_proxy/
-├── main.py                          # 应用入口
+├── main.py                          # 统一入口（server / chat / test）
 ├── requirements.txt
 ├── config/
-│   ├── settings.yaml               # 配置文件（server + mappings + providers）
-│   └── settings.mockup.yaml        # 调试模式配置示例
-├── app/
+│   ├── settings.yaml                # 配置（server + mappings + routes + client）
+│   ├── settings.example.yaml        # 配置模板
+│   └── settings.mockup.yaml         # 调试模式配置
+├── app/                             # 代理服务
+│   ├── server.py                    # 服务启动（FastAPI app）
 │   ├── core/
-│   │   ├── client.py                # BaseClient ABC
-│   │   ├── converter.py             # BaseConverter ABC
-│   │   ├── providers.py             # Proxy + ProxyRegistry
-│   │   ├── loader.py                # 配置加载 + 自动装配
-│   │   ├── config.py                # Settings + 模型映射
-│   │   └── errors.py                # 异常 → HTTP 错误
 │   ├── clients/
-│   │   ├── claude_client.py         # ClaudeClient (anthropic SDK)
-│   │   ├── openai_client.py         # OpenAIClient (openai SDK)
-│   │   ├── httpx_client.py          # HttpxClient (通用 HTTP)
-│   │   └── mockup_client.py         # MockupClient (调试模式)
-│   ├── converters/                  # 6 个转换器 (3格式×2方向)
-│   │   ├── completions_from_messages.py
-│   │   ├── completions_from_responses.py
-│   │   ├── messages_from_completions.py
-│   │   ├── messages_from_responses.py
-│   │   ├── responses_from_messages.py
-│   │   └── responses_from_completions.py
-│   └── routes/
-│       ├── completions.py           # /v1/chat/completions
-│       ├── responses.py             # /v1/responses
-│       └── messages.py              # /v1/messages
-└── tests/                           # 57 个测试
+│   ├── converters/
+│   ├── routes/
+│   └── tests/                       # 服务测试（57）
+├── cli/                             # CLI 客户端（独立，不 import app/）
+│   ├── client.py                    # ChatClient (HTTP + SSE)
+│   ├── conversation.py              # 多轮对话管理
+│   ├── commands.py                  # 斜杠命令
+│   ├── display.py                   # rich 格式化输出
+│   ├── repl.py                      # 交互循环
+│   ├── tester.py                    # 冒烟测试
+│   └── tests/                       # CLI 测试（28）
 ```
 
 ---
@@ -269,11 +282,10 @@ api_proxy/
 ## 测试
 
 ```bash
-python -m pytest -v          # 全部测试
-python -m pytest tests/test_converters/ -v  # 转换器
-python -m pytest tests/test_routes/ -v      # 路由
-python -m pytest tests/test_clients/ -v     # 客户端
-python -m pytest tests/test_core/ -v        # 核心模块
+python -m pytest app/tests/ cli/tests/ -v   # 全部测试（85）
+python -m pytest app/tests/ -v              # 服务测试（57）
+python -m pytest cli/tests/ -v              # CLI 测试（28）
+python main.py test                         # 冒烟测试（需服务运行）
 ```
 
 ---

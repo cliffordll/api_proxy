@@ -136,13 +136,15 @@
 
 | # | 任务 | 说明 | 产出文件 | 状态 |
 |---|------|------|---------|------|
-| 8.1 | CLI 单元测试 | ChatClient / Conversation / CommandHandler | `cli/tests/` | 待开始 |
-| 8.2 | 更新 README.md | CLI 用法、项目结构 | `README.md` | 待开始 |
-| 8.3 | 更新 CLAUDE.md | 对齐 | `CLAUDE.md` | 待开始 |
-| 8.4 | 更新 settings.example.yaml | 完整四段配置示例 | `config/settings.example.yaml` | 待开始 |
+| 8.1 | CLI 单元测试 | ChatClient / Conversation / CommandHandler | `cli/tests/` | 完成 |
+| 8.2 | 更新 README.md | CLI 用法、项目结构 | `README.md` | 完成 |
+| 8.3 | 更新 CLAUDE.md | 对齐 | `CLAUDE.md` | 完成 |
+| 8.4 | 更新 settings.example.yaml | 已在 hotfix 中完成 | `config/settings.example.yaml` | 完成 |
 
 **验收**：全部测试通过，文档与实现一致
 
 **执行记录**：
 
-> 待填写
+> - 8.1 CLI 测试：28 passed（test_client 14 + test_commands 11 + test_conversation 6 + 1 conftest 加载）
+> - 全量：85 passed（57 app + 28 cli）
+> - 8.3 CLAUDE.md：技术栈加 rich，编码规范加统一入口/CLI 独立/from 推导
