@@ -1,5 +1,7 @@
 __pycache__/
 *.pyc
-.env
 .claude/
 docs/architecture_v0.1.md
+
+# 真实配置（只提交模板）
+config/settings.yaml

@@ -4,37 +4,15 @@ import uvicorn
 from fastapi import FastAPI
 
 from app.core.config import get_settings
-from app.core.registry import registry, ProviderEntry
-from app.clients.claude_client import ClaudeClient
-from app.clients.openai_client import OpenAIClient
-from app.converters.openai_to_claude import OpenAIToClaudeConverter
-from app.converters.claude_to_openai import ClaudeToOpenAIConverter
-from app.routes.openai_compat import router as openai_router
-from app.routes.claude_compat import router as claude_router
-
-
-def register_providers():
-    """注册所有 Provider 到全局 Registry。"""
-    settings = get_settings()
-
-    # 注册 Claude Provider（供 /v1/chat/completions 使用）
-    registry.register("claude", ProviderEntry(
-        client=ClaudeClient(base_url=settings.anthropic_base_url),
-        request_converter=OpenAIToClaudeConverter(),
-        response_converter=OpenAIToClaudeConverter(),
-    ))
-
-    # 注册 OpenAI Provider（供 /v1/messages 使用）
-    registry.register("openai", ProviderEntry(
-        client=OpenAIClient(base_url=f"{settings.openai_base_url}/v1"),
-        request_converter=ClaudeToOpenAIConverter(),
-        response_converter=ClaudeToOpenAIConverter(),
-    ))
+from app.core.loader import load_providers
+from app.routes.completions import router as completions_router
+from app.routes.responses import router as responses_router
+from app.routes.messages import router as messages_router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    register_providers()
+    load_providers("config/settings.yaml")
     yield
 
 
@@ -44,8 +22,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.include_router(openai_router)
-app.include_router(claude_router)
+app.include_router(completions_router)
+app.include_router(responses_router)
+app.include_router(messages_router)
 
 
 @app.get("/health")
@@ -54,10 +33,12 @@ async def health():
 
 
 if __name__ == "__main__":
+    # 先加载配置，再读取服务参数
+    load_providers("config/settings.yaml")
     settings = get_settings()
     uvicorn.run(
         "main:app",
-        host=settings.host,
-        port=settings.port,
-        log_level=settings.log_level,
+        host=settings["host"],
+        port=settings["port"],
+        log_level=settings["log_level"],
     )

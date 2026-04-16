@@ -2,18 +2,20 @@
 
 ## 技术栈
 
-- Python 3.11+ / FastAPI / openai SDK / anthropic SDK / pydantic-settings / pyyaml
+- Python 3.10+ / FastAPI / openai SDK / anthropic SDK / httpx / pyyaml
 - 测试: pytest + pytest-asyncio
 
 ## 编码规范
 
 - 所有 I/O 使用 async/await
-- 转换器（converters/）必须是纯函数，无 I/O，无副作用
+- 转换器（converters/）必须是纯函数，无 I/O，无副作用，输入输出统一 dict/str
+- Client 层统一 `chat()` 接口，输入 dict，输出 dict（非流式）/ AsyncIterator[str]（流式），SDK 细节封装在内部
+- Proxy 封装 Client + Converter，路由层通过 `proxy.chat()` 一行调用
 - 流式响应使用 SSE 格式
-- 配置统一通过 pydantic-settings，不直接 os.environ
+- 配置统一通过 config/settings.yaml 管理（server + provider）
+- Provider 配置通过 config/settings.yaml，load_providers() 自动装配
 - 不硬编码 API 密钥
-- content 块使用多态类型设计，预留多模态扩展
-- 模型映射从 config/model_mapping.yaml 加载，未命中则透传
+- 模型映射在 config/settings.yaml 的 mappings 段配置，未命中则透传
 - 做好封装，保持模块间职责清晰、接口稳定，便于后续扩展和替换
 
 ## 开发流程规范

@@ -39,7 +39,7 @@
           │ load_providers()
 ┌──────────────────────────────────────────────────────────────┐
 │                       配置层                                  │
-│  config/providers.yaml → 自动创建 Client + Converter → Proxy │
+│  config/settings.yaml → 自动创建 Client + Converter → Proxy │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -76,7 +76,7 @@
 | **两层解耦** | Provider 管终端（调谁），Converter 管格式（怎么转），通过配置绑定 |
 | **统一传输接口** | Client 层统一 `chat()` 方法，输入 dict、输出 dict / AsyncIterator[str]，SDK 细节封装在内部 |
 | **统一数据契约** | 全链路 dict + str，Client ↔ Converter 之间无 SDK 类型依赖 |
-| **配置驱动** | `providers.yaml` 定义 provider + interface + converter 组合，`load_providers()` 自动装配 |
+| **配置驱动** | `settings.yaml` 定义 provider + interface + converter 组合，`load_providers()` 自动装配 |
 | **状态内聚** | 流式 state 通过 ContextVar 在 Converter 内部管理 |
 
 ## 3. 依赖
@@ -85,7 +85,6 @@
 # requirements.txt
 fastapi>=0.110.0
 uvicorn>=0.29.0
-pydantic-settings>=2.2.0
 pyyaml>=6.0.1
 httpx>=0.27.0            # AsyncClient，通用 HTTP 客户端 + SSE 流式
 openai>=1.30.0           # AsyncOpenAI 客户端
@@ -234,7 +233,7 @@ CONVERTER_REGISTRY = {
     "responses_from_completions": ResponsesFromCompletionsConverter,
 }
 
-# 内置默认配置（config/providers.yaml 不存在时使用）
+# 内置默认配置（config/settings.yaml 不存在时使用）
 DEFAULT_CONFIG = {
     "completions": {
         "path": "/v1/chat/completions",
@@ -278,7 +277,7 @@ def load_providers(config_path: str) -> None:
 ### 4.5 配置文件
 
 ```yaml
-# config/providers.yaml
+# config/settings.yaml
 
 completions:
   path: /v1/chat/completions
@@ -589,16 +588,16 @@ Messages:    {role: "user", content: [{type: "tool_result", tool_use_id: "xxx", 
 ## 12. 模型映射
 
 ```yaml
-# config/model_mapping.yaml
-openai_to_claude:
-  gpt-4o: claude-sonnet-4-6-20250514
-  gpt-4: claude-opus-4-6-20250514
-  gpt-3.5-turbo: claude-haiku-4-5-20251001
-
-claude_to_openai:
-  claude-sonnet-4-6-20250514: gpt-4o
-  claude-opus-4-6-20250514: gpt-4
-  claude-haiku-4-5-20251001: gpt-3.5-turbo
+# config/settings.yaml 的 mappings 段
+mappings:
+  openai_to_claude:
+    gpt-4o: claude-sonnet-4-6-20250514
+    gpt-4: claude-opus-4-6-20250514
+    gpt-3.5-turbo: claude-haiku-4-5-20251001
+  claude_to_openai:
+    claude-sonnet-4-6-20250514: gpt-4o
+    claude-opus-4-6-20250514: gpt-4
+    claude-haiku-4-5-20251001: gpt-3.5-turbo
 ```
 
 策略：YAML 覆盖 → 内置默认 → 未命中透传。
@@ -614,21 +613,21 @@ claude_to_openai:
 
 ```python
 # app/core/config.py
-class Settings(BaseSettings):
-    anthropic_base_url: str = "https://api.anthropic.com"
-    openai_base_url: str = "https://api.openai.com"
-    host: str = "0.0.0.0"
-    port: int = 8000
-    log_level: str = "info"
-    default_max_tokens: int = 4096
-    model_mapping_file: str = "config/model_mapping.yaml"
+# config/settings.yaml 的 server 段加载为 dict
+# 默认值见 app/core/config.py DEFAULT_SERVER_CONFIG
+server:
+  host: 0.0.0.0
+  port: 8000
+  log_level: info
+  default_max_tokens: 4096
+  # model_mapping 已合并到 settings.yaml 的 mappings 段
 ```
 
 ```python
 # main.py
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    load_providers("config/providers.yaml")
+    load_providers("config/settings.yaml")
     yield
 ```
 
@@ -640,9 +639,7 @@ api_proxy/
 ├── main.py
 ├── requirements.txt
 ├── config/
-│   ├── model_mapping.yaml              # 模型名映射
-│   └── providers.yaml                  # Provider 配置（可选，有内置默认值）
-├── .env.example
+│   └── settings.yaml                  # 配置文件（server + mappings + providers）
 ├── docs/
 │   ├── architecture.md
 │   ├── feature.md
@@ -704,7 +701,7 @@ api_proxy/
 
 | 扩展项 | 扩展方式 |
 |--------|---------|
-| **新增供应商** | 实现新 Client 或直接用 `HttpxClient`，搭配 Converter，改 `providers.yaml` |
+| **新增供应商** | 实现新 Client 或直接用 `HttpxClient`，搭配 Converter，改 `settings.yaml` |
 | **任意兼容 API** | 直接用 `HttpxClient`，无需实现新 Client 类 |
 | **多模态** | Converter 添加对应分支 |
 | **认证中间件** | FastAPI middleware |

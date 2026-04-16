@@ -16,9 +16,9 @@
 2. BaseConverter 去掉泛型，输入输出统一 dict/str
 3. Proxy 封装 Client + Converter，对外暴露 `chat()` 方法，路由层一行调用拿到最终结果
 4. ProxyRegistry 按接口名管理 Proxy 实例
-5. Client 通过 `interface` 参数（初始化时传入）决定调哪个上游 endpoint，在 `providers.yaml` 中配置
+5. Client 通过 `interface` 参数（初始化时传入）决定调哪个上游 endpoint，在 `settings.yaml` 中配置
 6. 转换器以 `{输出}From{输入}Converter` 命名，6 个全量实现
-7. 配置驱动：`config/providers.yaml` 平铺配置，`load_providers()` 自动装配，有内置默认值
+7. 配置驱动：`config/settings.yaml` 平铺配置，`load_providers()` 自动装配，有内置默认值
 8. 新增 HttpxClient 通用 HTTP 客户端
 9. 新增 MockupClient 调试模式
 10. 新增 `/v1/responses` 端点
@@ -125,7 +125,7 @@ Phase 8 (文档 + 收尾)
 | 5.3 | messages.py | `POST /v1/messages`，`registry.get("messages").chat()` | `app/routes/messages.py` |
 | 5.4 | 删除旧路由 | 删除 `openai_compat.py`、`claude_compat.py` | — |
 | 5.5 | 更新 main.py | `lifespan` 调用 `load_providers()`，注册三个路由 | `main.py` |
-| 5.6 | 创建默认配置 | `config/providers.yaml`（含 interface 字段） | `config/providers.yaml` |
+| 5.6 | 创建默认配置 | `config/settings.yaml`（含 interface 字段） | `config/settings.yaml` |
 
 **验收**：`python main.py` 启动，`GET /health` 返回 200，三个端点认证校验正常。
 
@@ -139,7 +139,7 @@ Phase 8 (文档 + 收尾)
 |---|------|------|---------|
 | 6.1 | MockupClient | 实现 `chat()`，根据 `interface` 返回对应格式的模拟 dict/str 数据 | `app/clients/mockup_client.py` |
 | 6.2 | 注册到 PROVIDER_REGISTRY | `"mockup": MockupClient` | `app/core/loader.py` |
-| 6.3 | 创建调试配置示例 | `config/providers.mockup.yaml` | `config/providers.mockup.yaml` |
+| 6.3 | 创建调试配置示例 | `config/settings.mockup.yaml` | `config/settings.mockup.yaml` |
 
 **验收**：配置 `provider: mockup`，三个端点非流式和流式均返回模拟数据。
 

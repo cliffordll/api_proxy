@@ -2,38 +2,42 @@
 
 from __future__ import annotations
 
-from typing import Any
+import json
+from typing import AsyncIterator
 
 import anthropic
 
 from app.core.client import BaseClient
-from app.core.config import get_settings
 
 
 class ClaudeClient(BaseClient):
-    """封装 anthropic.AsyncAnthropic，实现 BaseClient 接口。"""
+    """封装 anthropic.AsyncAnthropic，统一 chat() 接口。
 
-    def __init__(self, base_url: str) -> None:
-        self.base_url = base_url
+    interface 固定为 "messages"。
+    非流式返回 dict，流式 yield SSE data str。
+    """
 
-    async def send(
-        self, params: Any, api_key: str, stream: bool = False
-    ) -> Any:
-        """
-        发送请求到 Claude Messages API。
-        非流式返回 anthropic.types.Message，
-        流式返回 anthropic.MessageStream（上下文管理器）。
-        """
+    async def chat(
+        self, params: dict, api_key: str, stream: bool = False
+    ) -> dict | AsyncIterator[str]:
         client = anthropic.AsyncAnthropic(
             api_key=api_key,
             base_url=self.base_url,
         )
 
-        # 移除 stream 字段，由客户端方法控制
-        params.pop("stream", None)
+        # 移除 stream 字段，由方法参数控制
+        params = {k: v for k, v in params.items() if k != "stream"}
 
         if not stream:
-            return await client.messages.create(**params)
+            response = await client.messages.create(**params)
+            return response.model_dump(mode="json")
+        else:
+            return self._stream_chat(client, params)
 
-        # 流式：返回 MessageStream 上下文管理器
-        return client.messages.stream(**params)
+    async def _stream_chat(
+        self, client: anthropic.AsyncAnthropic, params: dict
+    ) -> AsyncIterator[str]:
+        """流式调用，逐事件 yield JSON 字符串。"""
+        stream = await client.messages.create(stream=True, **params)
+        async for event in stream:
+            yield json.dumps(event.model_dump(mode="json"), ensure_ascii=False)

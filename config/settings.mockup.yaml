@@ -1,0 +1,31 @@
+# 调试模式配置 — 所有接口使用 MockupClient，无需真实 API
+# 使用方式: cp config/settings.mockup.yaml config/settings.yaml
+
+server:
+  host: 0.0.0.0
+  port: 8000
+  log_level: debug
+  default_max_tokens: 4096
+
+# mappings: 使用内置默认映射，无需配置
+
+completions:
+  path: /v1/chat/completions
+  base_url: http://localhost
+  provider: mockup
+  interface: messages
+  converter: completions_from_messages
+
+responses:
+  path: /v1/responses
+  base_url: http://localhost
+  provider: mockup
+  interface: messages
+  converter: responses_from_messages
+
+messages:
+  path: /v1/messages
+  base_url: http://localhost
+  provider: mockup
+  interface: completions
+  converter: messages_from_completions
