@@ -22,8 +22,10 @@
 - **Tab 补全**：斜杠命令、模型名、路由名动态补全
 - **模型探测**：
   - `python main.py models` 一键列出所有路由上游可用模型
-  - `chat` 启动时在 welcome 框内展示当前路由上游模型；`/route` 切换自动重探
-- **斜杠命令**：`/model` `/models` `/route` `/stream` `/history` `/clear` `/quit`
+  - `chat` 启动并发探测所有路由，welcome 框内统一展示 `(provider)` + 状态符号 (`✓` / `✗` / `[mockup]`) + 模型列表
+  - `/route <name>` 直切，`/routes` 列表 + 数字选中切换
+- **Server 默认 mockup**：`settings.yaml` 无 `routes` 段时所有路由走 `MockupClient`，响应正文开头带 `[mockup]` 标记
+- **斜杠命令**：`/model` `/models` `/route` `/routes` `/stream` `/history` `/clear` `/quit`
 - **Tool Call 展示**：格式化展示工具调用参数和结果
 - **冒烟测试**：`python main.py test` 一键验证服务可用性
 
@@ -84,7 +86,8 @@ python main.py chat --base-url http://localhost:8000 --route messages --model qw
 | `/help` | 显示帮助 |
 | `/model <name>` | 切换模型 |
 | `/models` | 查看可用模型并选择 |
-| `/route <name>` | 切换路由（completions / messages / responses） |
+| `/route <name>` | 直接切换路由（completions / messages / responses） |
+| `/routes` | 列出路由 + 数字选中切换 |
 | `/stream on\|off` | 开关流式 |
 | `/history` | 查看对话历史 |
 | `/clear` | 清空对话 |

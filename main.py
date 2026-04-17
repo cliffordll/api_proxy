@@ -3,6 +3,13 @@
 import argparse
 import sys
 
+# Windows 下默认 GBK，无法编码 ✓/✗ 等；reconfigure 到 utf-8 以便 rich 渲染
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 
 def main():
     parser = argparse.ArgumentParser(description="API Proxy")

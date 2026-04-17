@@ -29,6 +29,7 @@ class CommandHandler:
             "/help": self._cmd_help,
             "/model": lambda: self._cmd_model(arg),
             "/route": lambda: self._cmd_route(arg),
+            "/routes": self._cmd_routes,
             "/stream": lambda: self._cmd_stream(arg),
             "/models": self._cmd_models,
             "/history": self._cmd_history,
@@ -52,15 +53,42 @@ class CommandHandler:
     def _cmd_help(self):
         help_text = (
             "/help              显示帮助\n"
+            "/route <name>      切换路由 (completions/messages/responses)\n"
+            "/routes            列出路由并选择切换\n"
             "/model <name>      切换模型\n"
             "/models            查看可用模型\n"
-            "/route <name>      切换路由 (completions/messages/responses)\n"
             "/stream on|off     开关流式\n"
             "/history           查看对话历史\n"
             "/clear             清空对话\n"
             "/quit              退出"
         )
         self.display.print_info(help_text)
+
+    def _cmd_routes(self):
+        """列出路由 + 数字选择器（不探测，选中后走 /route 切换流水线）。"""
+        from cli.core.config import load_routes
+        from common.routes import ROUTE_PRIORITY
+
+        if self.config.get("base_url_override"):
+            # 显式场景：固定三个标准路由，provider 统一 None（picker 里不显示）
+            entries = [(r, None) for r in ROUTE_PRIORITY]
+        else:
+            routes = load_routes()
+            entries = [(name, conf.get("provider")) for name, conf in routes.items()]
+
+        if not entries:
+            self.display.print_error("未找到路由配置")
+            return
+
+        idx = self.display.print_route_picker(entries, current=self.config.get("route"))
+        if idx is None:
+            return
+        selected = entries[idx][0]
+        if selected == self.config["route"]:
+            self.display.print_info(f"路由未变: {selected}")
+            return
+        self.config["route"] = selected
+        self.display.print_info(f"路由已切换: {selected}")
 
     async def _cmd_models(self):
         from cli.core.config import get_route_base_url
@@ -74,7 +102,9 @@ class CommandHandler:
         if not models:
             self.display.print_models(None, upstream=upstream)
             return
-        self.display.print_models(models, numbered=True, upstream=upstream)
+        self.display.print_models(
+            models, numbered=True, upstream=upstream, current=self.config.get("model")
+        )
         try:
             choice = input("选择模型 (输入编号，回车跳过): ").strip()
         except (EOFError, KeyboardInterrupt):

@@ -13,11 +13,14 @@ from cli.chat.conversation import Conversation
 from cli.core.client import ChatClient
 from cli.core.config import load_routes
 from cli.core.display import Display
-from cli.core.probe import probe_models
-from common.routes import ROUTES
+from cli.core.probe import probe_all, probe_route
+from common.routes import ROUTE_PRIORITY, ROUTES
 
 
-COMMANDS = ["/help", "/model", "/models", "/route", "/stream", "/history", "/clear", "/quit", "/exit"]
+COMMANDS = [
+    "/help", "/model", "/models", "/route", "/routes",
+    "/stream", "/history", "/clear", "/quit", "/exit",
+]
 STREAM_OPTIONS = ["on", "off"]
 
 
@@ -32,12 +35,10 @@ class DynamicCompleter(Completer):
         words = text.split()
 
         if not text or text == "/":
-            # 输入 / 开头 → 补全命令
             for cmd in COMMANDS:
                 if cmd.startswith(text):
                     yield Completion(cmd, start_position=-len(text))
         elif len(words) == 1 and text.startswith("/"):
-            # 命令输入中
             for cmd in COMMANDS:
                 if cmd.startswith(words[0]):
                     yield Completion(cmd, start_position=-len(words[0]))
@@ -62,7 +63,12 @@ class DynamicCompleter(Completer):
 class Repl:
     """交互式 REPL，组装 ChatClient + Conversation + CommandHandler + Display。"""
 
-    def __init__(self, config: dict):
+    def __init__(
+        self,
+        config: dict,
+        route_results: list[dict] | None = None,
+        footer_note: str | None = None,
+    ):
         self.config = config
         self.client = ChatClient(
             base_url=config["base_url"],
@@ -72,41 +78,45 @@ class Repl:
         self.conversation = Conversation()
         self.display = Display()
         self.commands = CommandHandler(config, self.conversation, self.display, self.client)
-        self.available_models: list[str] = []
+        self.route_results = route_results or []
+        self.footer_note = footer_note
+        self.available_models = _models_for_route(route_results or [], config["route"])
 
     def _build_completer(self) -> DynamicCompleter:
-        """构建动态补全器。"""
         return DynamicCompleter(models=self.available_models)
 
-    async def _probe_current_models(self) -> tuple[str | None, list[str] | None]:
-        """探测模型。
-
-        - CLI 显式指定了 --base-url：直接打该地址（用户在绕过 Proxy 直连）
-        - 否则走 settings.yaml 的 routes[当前路由].base_url（经 Proxy 时的真实上游）
-
-        返回 (upstream, models)。models 为 None 表示探测不可用。
-        """
+    async def _refresh_current_route(self):
+        """/route 切换后：探测新路由，打印结果，更新 available_models 和默认 model。"""
+        name = self.config["route"]
         if self.config.get("base_url_override"):
-            upstream = self.config["base_url"]
+            conf = {"provider": "direct", "base_url": self.config["base_url"]}
         else:
             routes = load_routes()
-            upstream = routes.get(self.config["route"], {}).get("base_url")
-        if not upstream:
-            return None, None
-        return upstream, await probe_models(upstream)
+            conf = routes.get(name, {})
+        result = await probe_route(name, conf)
+        replaced = False
+        for i, r in enumerate(self.route_results):
+            if r["route"] == name:
+                self.route_results[i] = result
+                replaced = True
+                break
+        if not replaced:
+            self.route_results.append(result)
+        self.available_models = result.get("models") or []
+        # 未显式指定 --model 时，跟随新路由的首个模型
+        if not self.config.get("model_override") and self.available_models:
+            self.config["model"] = self.available_models[0]
+        self.display.print_route_status(result)
 
     async def run(self):
         """主循环。"""
-        # 启动时静默探测，塞进 welcome 框内
-        upstream, models = await self._probe_current_models()
-        self.available_models = models or []
         self.display.print_welcome(
             self.config["base_url"],
             self.config["route"],
             self.config["model"],
             self.config["stream"],
-            models,
-            upstream,
+            route_results=self.route_results,
+            footer_note=self.footer_note,
         )
 
         session = PromptSession(completer=self._build_completer())
@@ -127,7 +137,7 @@ class Repl:
                 print("Bye!")
                 break
             if await self.commands.handle(user_input):
-                # 路由切换后需要更新 client 并重探上游模型
+                # 路由切换：更新 client，重探新路由
                 if self.client.route != self.config["route"]:
                     self.client = ChatClient(
                         base_url=self.config["base_url"],
@@ -135,10 +145,7 @@ class Repl:
                         api_key=self.config["api_key"],
                     )
                     self.commands.client = self.client
-                    upstream, models = await self._probe_current_models()
-                    self.available_models = models or []
-                    self.display.print_models(models, upstream=upstream)
-                # 更新补全词表（模型可能变了）
+                    await self._refresh_current_route()
                 session.completer = self._build_completer()
                 continue
 
@@ -153,7 +160,6 @@ class Repl:
                 self.display.print_error(str(e))
 
     async def _sync_chat(self):
-        """非流式对话。"""
         resp = await self.client.send(
             self.conversation.get_messages(), self.config["model"], stream=False
         )
@@ -168,7 +174,6 @@ class Repl:
         self.conversation.add_assistant(text, tool_calls)
 
     async def _stream_chat(self):
-        """流式对话。"""
         self.display.print_stream_start()
         full_text = []
         async for data in self.client.send_stream(
@@ -180,6 +185,64 @@ class Repl:
                 full_text.append(chunk)
         self.display.print_stream_end()
         self.conversation.add_assistant("".join(full_text))
+
+
+def _models_for_route(results: list[dict], route: str) -> list[str]:
+    """从 probe 结果里取指定路由的 models。"""
+    for r in results:
+        if r["route"] == route:
+            return r.get("models") or []
+    return []
+
+
+async def _startup_probe(config: dict, args) -> tuple[list[dict], str | None]:
+    """启动前路由决策 + 探测。
+
+    返回 (route_results, footer_note)。同时回写 config["route"]。
+    """
+    explicit_base = config.get("base_url_override")
+
+    if explicit_base:
+        # 显式 --base-url：只探一条路由（默认 completions 或 args.route）
+        if not getattr(args, "route", None):
+            config["route"] = ROUTE_PRIORITY[0]
+        route = config["route"]
+        conf = {"provider": "direct", "base_url": config["base_url"]}
+        result = await probe_route(route, conf)
+        results = [result]
+        _apply_default_model(config, results)
+        return results, None
+
+    # 默认模式：读 yaml（或 DEFAULT_MOCKUP_ROUTES 回退），并发探所有
+    routes_conf = load_routes()
+    results = await probe_all(routes_conf)
+    if not getattr(args, "route", None):
+        # 默认路由 = 配置第一条
+        config["route"] = next(iter(routes_conf)) if routes_conf else ROUTE_PRIORITY[0]
+
+    mockup_all = bool(results) and all(r["status"] == "mockup" for r in results)
+    real_results = [r for r in results if r["status"] != "mockup"]
+    all_failed = bool(real_results) and all(r["status"] == "failed" for r in real_results)
+
+    footer_note = None
+    if mockup_all:
+        footer_note = "[mockup] 模式下响应正文开头会带 [mockup] 标记"
+    elif all_failed:
+        footer_note = f"[!] 所有路由探测失败，代理可能不可用。默认路由仍为 {config['route']}"
+
+    _apply_default_model(config, results)
+    return results, footer_note
+
+
+def _apply_default_model(config: dict, results: list[dict]) -> None:
+    """用户没传 --model 且当前路由探测到模型时，自动挑首个作为默认模型。"""
+    if config.get("model_override"):
+        return
+    route = config.get("route")
+    for r in results:
+        if r["route"] == route and r.get("models"):
+            config["model"] = r["models"][0]
+            return
 
 
 async def run_single(config: dict, message: str):
@@ -216,7 +279,13 @@ def start(args):
     config = merge_args(config, args)
 
     if args.message:
+        # 单次对话：如果没指定 route，补一个默认
+        if not config.get("route"):
+            config["route"] = ROUTE_PRIORITY[0]
         asyncio.run(run_single(config, args.message))
-    else:
-        repl = Repl(config)
-        asyncio.run(repl.run())
+        return
+
+    # REPL：启动前决策 + 探测，结果喂给 Repl
+    route_results, footer_note = asyncio.run(_startup_probe(config, args))
+    repl = Repl(config, route_results=route_results, footer_note=footer_note)
+    asyncio.run(repl.run())

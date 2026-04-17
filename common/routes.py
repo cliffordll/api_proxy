@@ -1,4 +1,4 @@
-"""API 协议常量 — 路由名、URL 路径、认证头格式。
+"""API 协议常量 — 路由名、URL 路径、优先级、默认配置、认证头格式。
 
 三种协议：
   - completions (OpenAI 风格): /v1/chat/completions, `Authorization: Bearer <key>`
@@ -16,6 +16,17 @@ ROUTE_PATHS: dict[str, str] = {
 }
 
 ROUTES: list[str] = list(ROUTE_PATHS.keys())
+
+# 固定优先级（用于没有 yaml 时的展示顺序、显式 --base-url 场景 /routes picker 等）
+ROUTE_PRIORITY: list[str] = ["completions", "responses", "messages"]
+
+# 默认路由配置：server 或 CLI 在 settings.yaml 无 routes 段时回退到此
+# 三条全走 mockup，base_url 是占位符（mockup 不发起实际 HTTP 请求）
+DEFAULT_MOCKUP_ROUTES: dict[str, dict] = {
+    "completions": {"path": "/v1/chat/completions", "base_url": "http://localhost", "provider": "mockup"},
+    "responses":   {"path": "/v1/responses",        "base_url": "http://localhost", "provider": "mockup"},
+    "messages":    {"path": "/v1/messages",         "base_url": "http://localhost", "provider": "mockup"},
+}
 
 
 def auth_headers(route: str, api_key: str) -> dict[str, str]:

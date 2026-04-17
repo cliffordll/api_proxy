@@ -9,6 +9,7 @@ import yaml
 
 from app.core.config import load_settings
 from app.core.proxy import Proxy, registry
+from common.routes import DEFAULT_MOCKUP_ROUTES
 
 
 # 供应商工厂：provider 名 → Client 类（延迟导入，避免循环依赖）
@@ -46,27 +47,9 @@ def _get_converter_registry() -> dict[str, type]:
     }
 
 
-# 内置默认配置（config/settings.yaml 不存在时使用）
-DEFAULT_CONFIG: dict[str, Any] = {
-    "completions": {
-        "path": "/v1/chat/completions",
-        "base_url": "https://api.anthropic.com",
-        "provider": "claude",
-        "from": "messages",
-    },
-    "responses": {
-        "path": "/v1/responses",
-        "base_url": "https://api.anthropic.com",
-        "provider": "claude",
-        "from": "messages",
-    },
-    "messages": {
-        "path": "/v1/messages",
-        "base_url": "https://api.openai.com/v1",
-        "provider": "openai",
-        "from": "completions",
-    },
-}
+# 内置默认配置（config/settings.yaml 缺失或无 routes 段时使用）
+# 引用 common.routes.DEFAULT_MOCKUP_ROUTES：三条路由统一走 mockup
+DEFAULT_CONFIG: dict[str, Any] = DEFAULT_MOCKUP_ROUTES
 
 
 def load_providers(config_path: str = "config/settings.yaml") -> None:

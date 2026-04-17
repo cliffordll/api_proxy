@@ -38,7 +38,7 @@ class MockupClient(BaseClient):
     def _mock_messages(self, params: dict, stream: bool) -> dict | AsyncIterator[str]:
         model = params.get("model", "mock-model")
         msg_id = f"msg_{uuid.uuid4().hex[:24]}"
-        text = f"[mockup] Hello from {model}"
+        text = f"[mockup] {model} speaking (Claude Messages). How can I help?"
 
         if not stream:
             return {
@@ -73,7 +73,7 @@ class MockupClient(BaseClient):
     def _mock_completions(self, params: dict, stream: bool) -> dict | AsyncIterator[str]:
         model = params.get("model", "mock-model")
         chunk_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
-        text = f"[mockup] Hello from {model}"
+        text = f"[mockup] {model} speaking (OpenAI Completions). How can I help?"
 
         if not stream:
             return {
@@ -104,7 +104,7 @@ class MockupClient(BaseClient):
     def _mock_responses(self, params: dict, stream: bool) -> dict | AsyncIterator[str]:
         model = params.get("model", "mock-model")
         resp_id = f"resp_{uuid.uuid4().hex[:24]}"
-        text = f"[mockup] Hello from {model}"
+        text = f"[mockup] {model} speaking (OpenAI Responses). How can I help?"
 
         if not stream:
             return {

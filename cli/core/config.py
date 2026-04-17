@@ -17,13 +17,16 @@ DEFAULT_CLIENT_CONFIG = {
 
 
 def load_routes(config_path: str = "config/settings.yaml") -> dict:
-    """读 settings.yaml 的 routes 段。"""
+    """读 settings.yaml 的 routes 段；无则返回 DEFAULT_MOCKUP_ROUTES 的副本。"""
+    from common.routes import DEFAULT_MOCKUP_ROUTES
+
     path = Path(config_path)
-    if not path.exists():
-        return {}
-    with open(path, encoding="utf-8") as f:
-        data = yaml.safe_load(f) or {}
-    return data.get("routes") or {}
+    routes: dict = {}
+    if path.exists():
+        with open(path, encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        routes = data.get("routes") or {}
+    return routes or {**DEFAULT_MOCKUP_ROUTES}
 
 
 def get_route_base_url(route: str, config_path: str = "config/settings.yaml") -> str | None:
@@ -68,6 +71,7 @@ def merge_args(config: dict, args) -> dict:
         config["route"] = args.route
     if getattr(args, "model", None):
         config["model"] = args.model
+        config["model_override"] = True
     if getattr(args, "api_key", None):
         config["api_key"] = args.api_key
     if getattr(args, "stream", None) is not None:
