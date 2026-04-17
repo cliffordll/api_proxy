@@ -17,12 +17,12 @@ class Display:
     """终端格式化输出，基于 rich。"""
 
     @staticmethod
-    def _format_route_sections(results: list[dict]) -> str:
-        """格式化路由状态展示块（不含 Panel）。
-
-        results: [{route, provider, status ('ok'|'failed'|'mockup'),
-                   status_reason, models, base_url}]
-        """
+    def _format_route_sections(
+        results: list[dict],
+        current: str | None = None,
+        server_url: str | None = None,
+    ) -> str:
+        """格式化路由状态展示块（不含 Panel）。current 路由加黄色 *；mockup 用 server_url。"""
         lines = []
         for i, r in enumerate(results):
             if i > 0:
@@ -34,15 +34,21 @@ class Display:
             status = r["status"]
             if status == "ok":
                 head += f"  [green]✓[/green]  [dim]{r['base_url']}[/dim]"
-                lines.append("  " + head)
-                for m in r.get("models") or []:
-                    lines.append(f"    [dim]- {m}[/dim]")
+            elif status == "mockup":
+                # 无真实上游，展示用户请求会打到的 server 地址
+                head += f"  [green]✓[/green]  [dim]{server_url or r.get('base_url', '')}[/dim]"
             elif status == "failed":
                 head += f"  [red]✗ {r.get('status_reason') or '探测失败'}[/red]"
-                lines.append("  " + head)
+            if r["route"] == current:
+                head += "   [yellow]*[/yellow]"
+            lines.append("  " + head)
+            if status == "ok":
+                for m in r.get("models") or []:
+                    lines.append(f"    [dim]- {m}[/dim]")
             elif status == "mockup":
-                head += "  [yellow]\\[mockup][/yellow]"
-                lines.append("  " + head)
+                lines.append("    [dim]- (mockup)[/dim]")
+            else:
+                lines.append("    [dim]- (无模型)[/dim]")
         return "\n".join(lines)
 
     def print_welcome(
@@ -52,13 +58,18 @@ class Display:
         model: str,
         stream: bool,
         route_results: list[dict] | None = None,
-        footer_note: str | None = None,
+        direct: bool = False,
     ):
         info = f"服务: {base_url}\n路由: {route}  模型: {model}  流式: {'on' if stream else 'off'}"
         if route_results:
-            info += "\n\n[dim]可用路由:[/dim]\n" + self._format_route_sections(route_results)
-        if footer_note:
-            info += f"\n\n[dim]{footer_note}[/dim]"
+            # 直连模式下只展示当前路由（所有 cache 条目共享同一端点，没必要重复）
+            displayed = [r for r in route_results if r["route"] == route] if direct else route_results
+            label = "直连端点:" if direct else "可用路由:"
+            info += f"\n\n[dim]{label}[/dim]\n" + self._format_route_sections(
+                displayed,
+                current=None if direct else route,
+                server_url=base_url,
+            )
         console.print(Panel(info, title="API Proxy CLI", border_style="cyan"))
         console.print("[dim]输入 /help 查看命令，/quit 退出[/dim]\n")
 

@@ -20,9 +20,8 @@ def main():
     server_parser.add_argument("--host", type=str, help="监听地址")
     server_parser.add_argument("--port", type=int, help="监听端口")
 
-    # chat 子命令（Phase 2 实现）
+    # chat 子命令
     chat_parser = subparsers.add_parser("chat", help="交互对话")
-    chat_parser.add_argument("message", nargs="?", help="单次对话内容")
     chat_parser.add_argument("--base-url", type=str, help="目标服务基础地址（不带 /v1，如 http://localhost:8000）")
     chat_parser.add_argument("--route", type=str, help="路由：completions / messages / responses")
     chat_parser.add_argument("--model", type=str, help="模型名")
@@ -30,15 +29,11 @@ def main():
     chat_parser.add_argument("--stream", dest="stream", action="store_true", default=None)
     chat_parser.add_argument("--no-stream", dest="stream", action="store_false")
 
-    # test 子命令（Phase 7 实现）
+    # test 子命令
     test_parser = subparsers.add_parser("test", help="冒烟测试")
     test_parser.add_argument("--base-url", type=str, help="目标服务基础地址（不带 /v1，如 http://localhost:8000）")
     test_parser.add_argument("--route", type=str, help="指定路由测试")
     test_parser.add_argument("--api-key", type=str, help="认证密钥")
-
-    # models 子命令
-    models_parser = subparsers.add_parser("models", help="按路由探测上游可用模型")
-    models_parser.add_argument("--route", type=str, help="仅探测指定路由")
 
     args = parser.parse_args()
 
@@ -54,9 +49,6 @@ def main():
         start(args)
     elif args.command == "test":
         from cli.tester import start
-        start(args)
-    elif args.command == "models":
-        from cli.models import start
         start(args)
 
 

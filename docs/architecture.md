@@ -1,32 +1,45 @@
-# 架构设计 - API Proxy v0.4（CLI 客户端）
+# 架构设计 - API Proxy
 
-> 核心理念：基于现有 Proxy 服务，提供统一入口（server / chat / test），支持交互式对话、流式输出、Tool Call 展示和冒烟测试。
+> 多协议 API 代理 + CLI 客户端。Server 侧实现 OpenAI / Anthropic 三种协议之间的双向转换；CLI 侧提供交互式对话，统一经 `main.py` 分发。
+
+---
 
 ## 1. 整体架构
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                      main.py 统一入口                         │
+│                      main.py 统一入口                        │
 │                                                              │
 │  python main.py server       → app/server.py                 │
 │  python main.py chat         → cli/repl.py                   │
 │  python main.py test         → cli/tester.py                 │
-│                                                              │
-│  ┌─ app/server.py ─┐  ┌─ cli/ ──────────────────────────┐  │
-│  │ load_providers() │  │ ChatClient    HTTP + SSE 请求    │  │
-│  │ uvicorn.run()    │  │ Conversation  多轮对话历史       │  │
-│  │                  │  │ CommandHandler 斜杠命令          │  │
-│  │                  │  │ Display       rich 格式化输出    │  │
-│  │                  │  │ Tester        冒烟测试           │  │
-│  └──────────────────┘  └─────────────────────────────────┘  │
-└──────────────────────────┬───────────────────────────────────┘
-                           │ HTTP / SSE
-                           ▼
+└──────────────────────────────┬───────────────────────────────┘
+                               │
+         ┌─────────────────────┼─────────────────────┐
+         ▼                     ▼                     ▼
+┌────────────────┐   ┌────────────────┐   ┌────────────────┐
+│  app/server.py │   │  cli/repl.py   │   │ cli/tester.py  │
+│  FastAPI app   │   │  Repl 交互循环 │   │  冒烟测试       │
+│  Proxy 装配    │   │  ChatClient    │   │  HttpClient     │
+│  路由注册      │   │  Display       │   │  Display        │
+└────────┬───────┘   └────────┬───────┘   └────────┬───────┘
+         │                    │                    │
+         │                    └─── HTTP/SSE ───────┤
+         │                                         ▼
+         │                            ┌─────────────────────┐
+         └──────────── 上游 ─────────▶│  代理服务 / 上游     │
+                                     │  (自身 or 真实上游)  │
+                                     └─────────────────────┘
+
 ┌──────────────────────────────────────────────────────────────┐
-│                    API Proxy 服务（或任意兼容服务）             │
-│  /v1/chat/completions    /v1/responses    /v1/messages        │
+│  common/ （app + cli 共享）                                   │
+│    http.py     HttpClient (httpx 薄封装)                     │
+│    routes.py   ROUTE_PATHS / ROUTE_PRIORITY /                │
+│                DEFAULT_MOCKUP_ROUTES / auth_headers           │
 └──────────────────────────────────────────────────────────────┘
 ```
+
+---
 
 ## 2. 统一入口
 
@@ -35,12 +48,12 @@
 python main.py server
 python main.py server --port 8080
 
-# 交互对话
+# 交互对话（代理模式，走 settings.yaml 的 routes）
 python main.py chat
-python main.py chat --base-url http://remote:8000 --route messages --model qwen2.5:3b
+python main.py chat --route messages --model qwen2.5:3b
 
-# 单次对话
-python main.py chat "hello"
+# 交互对话（直连模式，绕过 Proxy）
+python main.py chat --base-url http://localhost:11434
 
 # 冒烟测试
 python main.py test
@@ -48,285 +61,231 @@ python main.py test --base-url http://remote:8000
 python main.py test --route completions
 ```
 
-### 全局参数
+### chat 参数
 
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `--base-url` | `http://localhost:8000` | 目标服务基础地址 |
-| `--route` | `messages` | 路由：`completions` / `messages` / `responses` |
-| `--model` | `claude-sonnet-4-6-20250514` | 模型名 |
-| `--api-key` | 配置文件或环境变量 `API_KEY` | 认证密钥 |
-| `--stream` / `--no-stream` | `--stream` | 流式开关 |
+| 参数 | 说明 |
+|------|------|
+| `--base-url` | 目标地址（空 = 代理模式，走 settings.yaml；有 = 直连模式，绕过代理） |
+| `--route` | 路由 / 协议：`completions` / `messages` / `responses` |
+| `--model` | 模型名（空则用启动探测到的首个模型） |
+| `--api-key` | 认证密钥 |
+| `--stream` / `--no-stream` | 流式开关 |
 
 ### 配置优先级
 
 ```
-命令行参数 > config/settings.yaml 推导值（server 段）> 内置默认值
+命令行参数 > settings.yaml 推导值（server 段）> 内置默认值
 ```
 
-```yaml
-# config/settings.yaml
-server:
-  host: 0.0.0.0
-  port: 8000
-  ...
+### Server 默认 mockup
 
-routes:
-  completions:
-    path: /v1/chat/completions
-    base_url: https://api.anthropic.com
-    provider: claude
-    from: messages
-  responses:
-    path: /v1/responses
-    base_url: https://api.anthropic.com
-    provider: claude
-    from: messages
-  messages:
-    path: /v1/messages
-    base_url: https://api.openai.com/v1
-    provider: openai
-    from: completions
+`settings.yaml` 缺失或无 `routes` 段时，Server 加载 `common.routes.DEFAULT_MOCKUP_ROUTES` — 三条路由全 `provider: mockup`。永远能启动，响应带 `[mockup]` 前缀，无隐藏的外部依赖。
+
+---
+
+## 3. Server 侧设计
+
+### 3.1 核心组件
+
+- **`app/core/loader.py`**: 读 `settings.yaml` 的 `server` + `routes`，注册每条路由的 `Proxy = Client + Converter`
+- **`app/core/proxy.py`**: `Proxy.chat(params, api_key, stream)` 组合 converter + client，一行完成请求转换 → 上游调用 → 响应转换
+- **`app/core/converter.py` / `app/core/client.py`**: 基类（BaseConverter / BaseClient）
+
+### 3.2 客户端
+
+| Provider | 类 | 说明 |
+|----------|----|----|
+| `claude` | `ClaudeClient` | 基于 anthropic SDK |
+| `openai` | `OpenAIClient` | 基于 openai SDK |
+| `ollama` | `OpenAIClient` | 兼容 OpenAI 协议，别名 |
+| `httpx` | `HttpxClient` | 通用 HTTP 透传（用 `common.http.HttpClient`） |
+| `mockup` | `MockupClient` | 调试用，返回模拟数据，首字符带 `[mockup]` 标记 |
+
+### 3.3 转换器（6 个方向）
+
+```
+messages ↔ completions ↔ responses
 ```
 
-## 3. 模块设计
+每对方向一个 `BaseConverter` 子类，6 个类；不配 `from` 字段时走 `PassthroughConverter`（上游格式 = 路由名，不转换）。
 
-### 3.1 ChatClient — HTTP 客户端
+---
+
+## 4. CLI 侧设计
+
+### 4.1 文件布局
+
+```
+cli/
+├── repl.py             # Repl 类 + start() 入口 + chat 子命令主流程
+├── tester.py           # Tester 类 + start() 入口 + test 子命令
+├── chat/               # chat 会话相关
+│   ├── commands.py     # CommandHandler + DynamicCompleter（斜杠命令 + Tab 补全）
+│   ├── conversation.py # Conversation 多轮对话
+│   └── probe.py        # Probe 类：启动决策 + 路由探测 + 默认模型
+└── core/               # 跨命令共用
+    ├── client.py       # ChatClient：HTTP/SSE 请求发送与响应解析
+    ├── config.py       # load_client_config / merge_args / load_routes
+    └── display.py      # Display：rich 终端输出
+```
+
+### 4.2 Repl 组件
 
 ```python
-# cli/client.py
-
-class ChatClient:
-    """向目标服务发送请求，处理 SSE 流。"""
-
-    def __init__(self, base_url: str, route: str, api_key: str):
-        self.base_url = base_url
-        self.route = route
-        self.api_key = api_key
-
-    async def send(self, messages: list[dict], model: str,
-                   stream: bool = True) -> dict | AsyncIterator[str]:
-        """发送对话请求。"""
-
-    def _build_request(self, messages, model, stream) -> tuple[str, dict, dict]:
-        """根据 route 构建 URL / headers / body。"""
-
-    def _parse_response(self, data: dict) -> tuple[str, list[dict]]:
-        """解析响应，提取文本和 tool_calls。"""
-
-    def _parse_stream_event(self, line: str) -> str | None:
-        """解析 SSE 行，提取增量文本。"""
+class Repl:
+    def __init__(self, config, route_results=None):
+        self.client = ChatClient(...)          # 发送对话请求
+        self.conversation = Conversation()     # 历史
+        self.display = Display()               # 输出
+        self.commands = CommandHandler(config, ..., route_results)  # 斜杠命令
+        self.route_results = route_results     # 启动探测缓存
+        self.available_models = ...            # 当前路由模型
 ```
 
-三种路由的差异封装在 ChatClient 内部：
+### 4.3 启动决策（`cli/chat/probe.py::Probe`）
 
-| route | URL | 认证头 | 请求体 | 响应解析 |
-|-------|-----|--------|--------|---------|
-| `completions` | `/v1/chat/completions` | `Authorization: Bearer` | `{"messages": [...]}` | `choices[0].message` |
-| `messages` | `/v1/messages` | `x-api-key` | `{"messages": [...]}` | `content[0].text` |
-| `responses` | `/v1/responses` | `Authorization: Bearer` | `{"input": [...]}` | `output[0].content` |
-
-### 3.2 Conversation — 对话管理
-
-```python
-# cli/conversation.py
-
-class Conversation:
-    """多轮对话历史管理。"""
-
-    def add_user(self, content: str) -> None: ...
-    def add_assistant(self, content: str, tool_calls: list[dict] = None) -> None: ...
-    def add_tool_result(self, tool_call_id: str, result: str) -> None: ...
-    def get_messages(self) -> list[dict]: ...
-    def clear(self) -> None: ...
+```
+Probe(config, args).run()
+  ├── 代理模式（无 --base-url）
+  │     routes_conf = load_routes()                        # yaml，缺失的标准路由自动 fallback 到 mockup
+  │     results = await self._probe_all(routes_conf)       # 并发探所有路由
+  │     default route = yaml 首条
+  │
+  └── 直连模式（有 --base-url）
+        models = await self._probe_models(base_url)        # 一次探测
+        results = [三条路由共享同一 models]
+        default route = ROUTE_PRIORITY[0] = completions
 ```
 
-### 3.3 CommandHandler — 斜杠命令
+**探测时机**：**只在启动时探测一次**。之后 `/route` / `/routes` 切换、`/models` 命令全部查缓存，不再联网。
 
-```python
-# cli/commands.py
+**默认模型**：
+- 未传 `--model` → 用当前路由首个模型
+- 传了 `--model` → 以用户指定为准（`model_override=True`）
+- 切换路由时始终用新路由首个模型（不受 override 影响）
 
-class CommandHandler:
-    """解析和执行斜杠命令。"""
+### 4.4 路由 / 协议展示
 
-    def handle(self, input_text: str, context: dict) -> bool:
-        """处理斜杠命令，返回 True 表示已处理。"""
+三种 welcome 渲染：
+
+**代理模式 yaml 有 routes**：
 ```
+| 可用路由:                                          |
+|   completions  (ollama)  ✓  http://localhost:11434/v1   *
+|     - qwen2.5:3b
+|     - ...
+|   responses  (mockup)  ✓  http://localhost:8008
+|     - (mockup)
+|   messages  (openai)  ✓  ...
+|     - ...
+```
+
+缺失的标准路由自动回落到 mockup（server loader + CLI load_routes 共享 `merge_routes`，用 `DEFAULT_MOCKUP_ROUTES` 填充 yaml 里没写的）。
+
+**代理模式全 mockup（yaml 无 routes 或全 mockup）**：
+```
+| 可用路由:                                          |
+|   completions  (mockup)  ✓  http://localhost:8008   *
+|     - (mockup)
+|   responses  (mockup)  ✓  http://localhost:8008
+|     - (mockup)
+|   messages  (mockup)  ✓  http://localhost:8008
+|     - (mockup)
+```
+
+mockup 状态的 header 用 server 地址（用户真正请求的目标），体格与真实 ✓ 行一致。
+
+**直连模式**：
+```
+| 直连端点:                                          |
+|   completions  (direct)  ✓  http://localhost:11434
+|     - qwen2.5:3b
+|     - ...
+```
+
+直连模式下只展示当前路由（3 条 cache 共享同一探测结果），路由名自带协议语义（completions/responses/messages），不重复展示协议全称。
+
+### 4.5 斜杠命令
 
 | 命令 | 说明 |
 |------|------|
 | `/help` | 显示帮助 |
-| `/model <name>` | 切换模型 |
-| `/route <name>` | 切换路由 |
+| `/route <name>` | 直接切换路由（名字定位） |
+| `/routes` | 列出路由 + 数字选中切换；直连模式下走协议切换语义 |
+| `/model <name>` | 直接切换模型 |
+| `/models` | 列出当前路由模型（缓存）+ 数字选中切换 |
 | `/stream on\|off` | 开关流式 |
 | `/history` | 查看对话历史 |
 | `/clear` | 清空对话 |
-| `/quit` 或 `/exit` | 退出 |
+| `/quit` / `/exit` | 退出 |
 
-### 3.4 Display — 输出格式化
+---
 
-```python
-# cli/display.py
+## 5. 共享层 `common/`
 
-class Display:
-    """终端格式化输出，基于 rich。"""
+打破 app ↔ cli 的严格隔离（原 CLAUDE.md 规范），新增中间层：
 
-    def print_welcome(self): ...
-    def print_response(self, text: str): ...
-    def print_stream_start(self): ...
-    def print_stream_chunk(self, text: str): ...
-    def print_stream_end(self): ...
-    def print_tool_call(self, name: str, arguments: dict): ...
-    def print_tool_result(self, result: str): ...
-    def print_error(self, message: str): ...
-    def print_info(self, message: str): ...
-    def print_history(self, messages: list[dict]): ...
-```
+- **`common/http.py::HttpClient`**：SDK 风格的 httpx 封装，`get_json` / `post_json` / `iter_sse`（含 `skip_done`）；被 `app/clients/httpx_client.py`、`cli/core/client.py`、`cli/chat/probe.py` 共用
+- **`common/routes.py`**：
+  - `ROUTE_PATHS` — 协议名 → URL 路径
+  - `ROUTES` — 所有协议名列表
+  - `ROUTE_PRIORITY` — 排序优先级
+  - `DEFAULT_MOCKUP_ROUTES` — 默认 mockup 路由配置
+  - `merge_routes(yaml_routes)` — 将 yaml 与 DEFAULT_MOCKUP_ROUTES 合并，缺失的标准路由自动用 mockup 填充
+  - `auth_headers(route, key)` — OpenAI / Anthropic 风格认证头
 
-输出效果：
-
-```
-╭─ API Proxy CLI ──────────────────────────────╮
-│ 服务: http://localhost:8000                    │
-│ 路由: messages  模型: qwen2.5:3b  流式: on    │
-╰──────────────────────────────────────────────╯
-
-> what's the weather in Beijing?
-
-🔧 Tool Call: get_weather
-┌─ arguments ─────────────────────┐
-│ {"city": "Beijing"}             │
-└─────────────────────────────────┘
-┌─ result ────────────────────────┐
-│ {"temperature": 25, "sunny"}    │
-└─────────────────────────────────┘
-
-北京今天晴天，25°C。
-
-> /route completions
-✓ 路由已切换: completions
-
-> /quit
-Bye!
-```
-
-### 3.5 Tester — 冒烟测试
-
-```python
-# cli/tester.py
-
-class Tester:
-    """自动冒烟测试。"""
-
-    async def run(self, route: str = None) -> bool:
-        """运行测试，可指定路由或测全部。"""
-```
-
-输出效果：
-
-```
-$ python main.py test
-
-API Proxy 冒烟测试
-==================
-✓ GET  /health                          200
-✓ POST /v1/chat/completions (非流式)     200
-✓ POST /v1/chat/completions (流式)       200 SSE
-✓ POST /v1/messages (非流式)             200
-✓ POST /v1/messages (流式)               200 SSE
-✓ POST /v1/responses (非流式)            200
-✓ POST /v1/responses (流式)              200 SSE
-
-7/7 通过
-```
-
-### 3.6 REPL — 交互循环
-
-```python
-# cli/repl.py
-
-class Repl:
-    """交互式循环，组装各模块。"""
-
-    def __init__(self, client, conversation, commands, display): ...
-
-    async def run(self):
-        """主循环：读输入 → 命令或对话 → 显示输出。"""
-```
-
-## 4. 项目结构
-
-```
-api_proxy/
-├── main.py                      # 统一入口（server / chat / test）
-├── app/                         # 代理服务代码
-│   ├── server.py                # 服务启动逻辑（lifespan + uvicorn.run）
-│   ├── core/
-│   ├── clients/
-│   ├── converters/
-│   ├── routes/
-│   └── tests/                   # 服务测试（跟着 app/ 走）
-│       ├── conftest.py
-│       ├── test_core/
-│       ├── test_converters/
-│       ├── test_clients/
-│       └── test_routes/
-├── cli/                         # CLI 客户端（独立，不 import app/）
-│   ├── __init__.py
-│   ├── client.py                # ChatClient (HTTP + SSE)
-│   ├── conversation.py          # 多轮对话管理
-│   ├── commands.py              # 斜杠命令
-│   ├── display.py               # rich 格式化输出
-│   ├── repl.py                  # 交互循环
-│   ├── tester.py                # 冒烟测试
-│   └── tests/                   # CLI 测试（跟着 cli/ 走）
-│       ├── __init__.py
-│       ├── test_client.py
-│       ├── test_conversation.py
-│       └── test_commands.py
-├── config/
-│   └── settings.yaml            # server + mappings + routes + client 配置
-└── docs/
-```
-
-## 5. 依赖
-
-```
-# requirements.txt 新增
-rich>=13.0.0                     # 终端美化
-```
+---
 
 ## 6. 数据流
 
+### Server 侧请求处理
 ```
-用户输入
+POST /v1/xxx
   │
-  ├─ 斜杠命令 → CommandHandler → Display 输出
+  ▼
+app/routes/*.py 路由 handler
   │
-  └─ 对话内容 → Conversation.add_user()
-                    │
-                    ▼
-              ChatClient.send()
-                    │
-                    ├─ 非流式 → 解析响应 → Display.print_response()
-                    │                        │
-                    │                        ├─ 有 tool_calls → Display.print_tool_call()
-                    │                        └─ 纯文本 → 直接显示
-                    │
-                    └─ 流式 → 逐行解析 SSE → Display.print_stream_chunk()
-                    │
-                    ▼
-              Conversation.add_assistant()
+  ▼
+Proxy.chat(params, api_key, stream)
+  ├── converter.convert_request(params) → 目标格式
+  ├── client.chat(params', api_key, stream)
+  │     └── 上游 HTTP 调用（httpx / openai SDK / anthropic SDK）
+  ▼
+converter.convert_response(resp) → 原协议格式
+  │
+  ▼ 响应或 SSE 流
 ```
 
-## 7. 开发阶段
+### CLI chat 交互
+```
+启动
+  ├── load_client_config + merge_args
+  ├── Probe(config, args).run() → route_results（同时回写 config.route / config.model）
+  └── Repl.__init__ + run()
+         │
+         ▼  主循环
+         ├── 斜杠命令 → CommandHandler.handle → 修改 config / 查缓存
+         │     路由切换 → _apply_cached_route → 状态展示 + 默认模型切换
+         │
+         └── 普通对话 → Conversation.add_user
+                         ▼
+                    ChatClient.send / send_stream
+                         ▼
+                    Display.print_response / print_stream_chunk
+                         ▼
+                    Conversation.add_assistant
+```
 
-```
-Phase 1: 统一入口 + 基础对话     main.py 子命令 + ChatClient + Repl + Display
-Phase 2: 流式输出               SSE 解析 + 逐字显示
-Phase 3: 多轮对话               Conversation 历史管理
-Phase 4: 斜杠命令               CommandHandler
-Phase 5: Tool Call 展示         解析 tool_calls + 格式化显示
-Phase 6: 冒烟测试               Tester
-Phase 7: 测试 + 文档            单元测试 + README 更新
-```
+---
+
+## 7. 技术栈
+
+| 组件 | 选型 |
+|------|------|
+| Web 框架 | FastAPI |
+| OpenAI 客户端 | openai SDK |
+| Anthropic 客户端 | anthropic SDK |
+| 通用 HTTP | httpx |
+| 配置管理 | PyYAML |
+| CLI 终端 | rich + prompt_toolkit |
+| 测试 | pytest + pytest-asyncio |

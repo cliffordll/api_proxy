@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import yaml
 
 from app.core.config import load_settings
 from app.core.proxy import Proxy, registry
-from common.routes import DEFAULT_MOCKUP_ROUTES
+from common.routes import merge_routes
 
 
 # 供应商工厂：provider 名 → Client 类（延迟导入，避免循环依赖）
@@ -47,35 +46,24 @@ def _get_converter_registry() -> dict[str, type]:
     }
 
 
-# 内置默认配置（config/settings.yaml 缺失或无 routes 段时使用）
-# 引用 common.routes.DEFAULT_MOCKUP_ROUTES：三条路由统一走 mockup
-DEFAULT_CONFIG: dict[str, Any] = DEFAULT_MOCKUP_ROUTES
-
-
 def load_providers(config_path: str = "config/settings.yaml") -> None:
     """从 YAML 加载配置，初始化服务配置 + 自动装配 Proxy。
 
-    YAML 中 server 段为服务配置，其余段为 Provider 配置。
-    配置文件不存在时使用内置默认配置。
+    YAML 中 server 段为服务配置，routes 段定义路由；缺失的标准路由回落到 mockup。
     """
     path = Path(config_path)
     if path.exists():
         with open(path, encoding="utf-8") as f:
             config = yaml.safe_load(f) or {}
     else:
-        config = DEFAULT_CONFIG.copy()
+        config = {}
 
     # 分离各段配置
     server_conf = config.pop("server", None)
     load_settings(server_conf)
 
-    # 提取 routes 段，兼容新旧格式
-    routes_conf = config.pop("routes", None)
-    if routes_conf:
-        config = routes_conf
-    # 无路由配置时使用默认
-    if not config:
-        config = DEFAULT_CONFIG
+    # 提取 routes 段；缺失的标准路由回落到 DEFAULT_MOCKUP_ROUTES
+    config = merge_routes(config.pop("routes", None))
 
     provider_registry = _get_provider_registry()
     converter_registry = _get_converter_registry()

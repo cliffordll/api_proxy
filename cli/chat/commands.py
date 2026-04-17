@@ -1,20 +1,40 @@
-"""斜杠命令处理"""
+"""斜杠命令：执行语义（CommandHandler）+ 输入补全（DynamicCompleter）"""
 
 from __future__ import annotations
 
 import json
 
+from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.document import Document
+
 from cli.core.display import Display
+from common.routes import ROUTES
+
+
+# 所有斜杠命令（Tab 补全 + /help 范围一致）
+COMMANDS = [
+    "/help", "/model", "/models", "/route", "/routes",
+    "/stream", "/history", "/clear", "/quit", "/exit",
+]
+STREAM_OPTIONS = ["on", "off"]
 
 
 class CommandHandler:
     """解析和执行斜杠命令。"""
 
-    def __init__(self, config: dict, conversation, display: Display, client=None):
+    def __init__(
+        self,
+        config: dict,
+        conversation,
+        display: Display,
+        client=None,
+        route_results: list[dict] | None = None,
+    ):
         self.config = config
         self.conversation = conversation
         self.display = display
         self.client = client
+        self.route_results = route_results if route_results is not None else []
 
     async def handle(self, input_text: str) -> bool:
         """处理斜杠命令，返回 True 表示已处理。"""
@@ -65,12 +85,13 @@ class CommandHandler:
         self.display.print_info(help_text)
 
     def _cmd_routes(self):
-        """列出路由 + 数字选择器（不探测，选中后走 /route 切换流水线）。"""
+        """列出路由 + 数字选择器（不探测，选中后走切换流水线）。"""
         from cli.core.config import load_routes
         from common.routes import ROUTE_PRIORITY
 
-        if self.config.get("base_url_override"):
-            # 显式场景：固定三个标准路由，provider 统一 None（picker 里不显示）
+        direct = self.config.get("base_url_override")
+        if direct:
+            # 直连场景：路由名已自带协议语义（completions/responses/messages），picker 不显示 provider
             entries = [(r, None) for r in ROUTE_PRIORITY]
         else:
             routes = load_routes()
@@ -84,21 +105,19 @@ class CommandHandler:
         if idx is None:
             return
         selected = entries[idx][0]
+        label = "协议" if direct else "路由"
         if selected == self.config["route"]:
-            self.display.print_info(f"路由未变: {selected}")
+            self.display.print_info(f"{label}未变: {selected}")
             return
         self.config["route"] = selected
-        self.display.print_info(f"路由已切换: {selected}")
+        self.display.print_info(f"{label}已切换: {selected}")
 
-    async def _cmd_models(self):
-        from cli.core.config import get_route_base_url
-        from cli.core.probe import probe_models
-
-        if self.config.get("base_url_override"):
-            upstream = self.config["base_url"]
-        else:
-            upstream = get_route_base_url(self.config["route"])
-        models = await probe_models(upstream) if upstream else None
+    def _cmd_models(self):
+        """列出当前路由的模型（从启动探测缓存读），数字选择器切换模型。"""
+        route = self.config["route"]
+        result = next((r for r in self.route_results if r["route"] == route), None)
+        upstream = result and result.get("base_url")
+        models = (result and result.get("models")) or []
         if not models:
             self.display.print_models(None, upstream=upstream)
             return
@@ -131,14 +150,15 @@ class CommandHandler:
     def _cmd_route(self, name: str):
         from common.routes import ROUTES
 
+        label = "协议" if self.config.get("base_url_override") else "路由"
         if not name:
-            self.display.print_info(f"当前路由: {self.config['route']}")
+            self.display.print_info(f"当前{label}: {self.config['route']}")
             return
         if name not in ROUTES:
-            self.display.print_error(f"无效路由: {name}，可选: {', '.join(ROUTES)}")
+            self.display.print_error(f"无效{label}: {name}，可选: {', '.join(ROUTES)}")
             return
         self.config["route"] = name
-        self.display.print_info(f"路由已切换: {name}")
+        self.display.print_info(f"{label}已切换: {name}")
 
     def _cmd_stream(self, arg: str):
         if not arg:
@@ -170,3 +190,42 @@ class CommandHandler:
     def _cmd_clear(self):
         self.conversation.clear()
         self.display.print_info("对话已清空")
+
+
+class DynamicCompleter(Completer):
+    """根据输入上下文动态补全：
+    - 首 token 补 COMMANDS
+    - 次 token 按命令分派（model / route / stream）
+    """
+
+    def __init__(self, models: list[str] | None = None):
+        self.models = models or []
+
+    def get_completions(self, document: Document, complete_event):
+        text = document.text_before_cursor
+        words = text.split()
+
+        if not text or text == "/":
+            for cmd in COMMANDS:
+                if cmd.startswith(text):
+                    yield Completion(cmd, start_position=-len(text))
+            return
+
+        if len(words) == 1 and text.startswith("/") and not text.endswith(" "):
+            for cmd in COMMANDS:
+                if cmd.startswith(words[0]):
+                    yield Completion(cmd, start_position=-len(words[0]))
+            return
+
+        cmd = words[0].lower()
+        partial = words[1] if len(words) >= 2 else ""
+        source = {
+            "/model": self.models,
+            "/route": ROUTES,
+            "/stream": STREAM_OPTIONS,
+        }.get(cmd)
+        if not source:
+            return
+        for item in source:
+            if item.startswith(partial):
+                yield Completion(item, start_position=-len(partial))

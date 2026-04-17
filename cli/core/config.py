@@ -17,16 +17,16 @@ DEFAULT_CLIENT_CONFIG = {
 
 
 def load_routes(config_path: str = "config/settings.yaml") -> dict:
-    """读 settings.yaml 的 routes 段；无则返回 DEFAULT_MOCKUP_ROUTES 的副本。"""
-    from common.routes import DEFAULT_MOCKUP_ROUTES
+    """读 settings.yaml 的 routes 段；缺失的标准路由回落到 DEFAULT_MOCKUP_ROUTES。"""
+    from common.routes import merge_routes
 
     path = Path(config_path)
-    routes: dict = {}
+    yaml_routes: dict | None = None
     if path.exists():
         with open(path, encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
-        routes = data.get("routes") or {}
-    return routes or {**DEFAULT_MOCKUP_ROUTES}
+        yaml_routes = data.get("routes")
+    return merge_routes(yaml_routes)
 
 
 def get_route_base_url(route: str, config_path: str = "config/settings.yaml") -> str | None:

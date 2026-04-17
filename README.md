@@ -8,10 +8,11 @@
 
 ### 代理服务
 - **三协议互转**：Completions / Messages / Responses 三种格式 6 个方向全覆盖
-- **配置驱动**：`settings.yaml` 一个文件管理服务 + 路由 + 映射 + 客户端配置
+- **配置驱动**：`settings.yaml` 一个文件管理服务 + 路由
 - **Proxy 架构**：`proxy.chat()` 一行调用，自动完成 请求转换 → 上游调用 → 响应转换
-- **五种客户端**：ClaudeClient / OpenAIClient / OllamaClient / HttpxClient / MockupClient
+- **四种客户端**：ClaudeClient / OpenAIClient (ollama 复用) / HttpxClient / MockupClient
 - **自动透传**：不配 `from` 字段时自动透传，无需格式转换
+- **无 routes 自动 mockup**：settings.yaml 无 `routes` 段时，server 加载 `DEFAULT_MOCKUP_ROUTES`，三条路由全 mockup，永远能启动
 - **流式响应 (SSE)**：完整支持流式输出
 - **Tool Calling**：完整支持工具调用互转
 - **模型名透传**：直接透传上游，无隐式改名
@@ -20,12 +21,9 @@
 ### CLI 客户端
 - **交互对话**：多轮对话 + 流式输出 + 上下文记忆
 - **Tab 补全**：斜杠命令、模型名、路由名动态补全
-- **模型探测**：
-  - `python main.py models` 一键列出所有路由上游可用模型
-  - `chat` 启动并发探测所有路由，welcome 框内统一展示 `(provider)` + 状态符号 (`✓` / `✗` / `[mockup]`) + 模型列表
-  - `/route <name>` 直切，`/routes` 列表 + 数字选中切换
-- **Server 默认 mockup**：`settings.yaml` 无 `routes` 段时所有路由走 `MockupClient`，响应正文开头带 `[mockup]` 标记
-- **斜杠命令**：`/model` `/models` `/route` `/routes` `/stream` `/history` `/clear` `/quit`
+- **一次探测、永久缓存**：`chat` 启动并发探测所有路由，welcome 框内统一展示 `(provider)` + 状态符号 (`✓` / `✗` / `[mockup]`) + 模型列表；后续 `/route` / `/routes` / `/models` 切换都只查缓存，不再联网
+- **直连模式**：`--base-url` 直连任意兼容端点，绕过 Proxy；三条路由共享同一探测结果
+- **斜杠命令**：`/route` `/routes` `/model` `/models` `/stream` `/history` `/clear` `/quit`
 - **Tool Call 展示**：格式化展示工具调用参数和结果
 - **冒烟测试**：`python main.py test` 一键验证服务可用性
 
@@ -54,8 +52,6 @@ cp config/settings.example.yaml config/settings.yaml
 ```bash
 python main.py server          # 启动代理服务
 python main.py chat            # 交互对话
-python main.py chat "hello"    # 单次对话
-python main.py models          # 列出各路由上游可用模型
 python main.py test            # 冒烟测试
 ```
 
@@ -104,15 +100,6 @@ python main.py chat --base-url http://localhost:8000 --route messages --model qw
 | `--stream` / `--no-stream` | 流式开关 |
 
 参数优先级：命令行 > settings.yaml 推导值（`server` 段）> 内置默认值。
-
-### 模型探测
-
-```bash
-python main.py models                          # 探测所有路由上游
-python main.py models --route messages         # 仅探测指定路由
-```
-
-读取 `config/settings.yaml` 的 `routes` 段，并发打各上游的 `/v1/models`（兼容 base_url 已含 `/v1` 的情况），按路由分组展示。`chat` 启动时也会自动探测当前路由的上游；若通过 `--base-url` 覆盖则直连该地址探测。
 
 ### 冒烟测试
 
@@ -245,7 +232,7 @@ print(message.content[0].text)
 
 ```
 api_proxy/
-├── main.py                          # 统一入口（server / chat / models / test）
+├── main.py                          # 统一入口（server / chat / test）
 ├── requirements.txt
 ├── config/
 │   ├── settings.yaml                # 配置（server + routes）
@@ -259,15 +246,20 @@ api_proxy/
 │   ├── routes/                      # 路由层（completions/messages/responses）
 │   └── tests/                       # 服务测试
 ├── cli/                             # CLI 客户端（独立，不 import app/）
-│   ├── client.py                    # ChatClient (HTTP + SSE)
-│   ├── config.py                    # 配置加载
-│   ├── conversation.py              # 多轮对话管理
-│   ├── commands.py                  # 斜杠命令
-│   ├── display.py                   # rich 格式化输出
-│   ├── repl.py                      # 交互循环 + Tab 补全
-│   ├── models.py                    # 上游模型探测（models 子命令 + chat 启动/切路由）
+│   ├── repl.py                      # 交互循环 Repl + start 入口
 │   ├── tester.py                    # 冒烟测试
+│   ├── chat/                        # chat 会话相关
+│   │   ├── commands.py              # 斜杠命令 + Tab 补全 (CommandHandler + DynamicCompleter)
+│   │   ├── conversation.py          # 多轮对话管理
+│   │   └── probe.py                 # Probe 类：启动决策 + 路由探测 + 默认模型
+│   ├── core/                        # 基础组件（跨命令共用）
+│   │   ├── client.py                # ChatClient (HTTP + SSE)
+│   │   ├── config.py                # 配置加载 + load_routes (mockup 自动回退)
+│   │   └── display.py               # rich 格式化输出
 │   └── tests/                       # CLI 测试
+├── common/                          # app 和 cli 共享
+│   ├── http.py                      # HttpClient (httpx 薄封装)
+│   └── routes.py                    # 路由常量 + 默认 mockup 配置 + merge_routes 自动回退
 └── docs/
     ├── architecture.md              # 架构设计
     ├── feature.md                   # 开发计划
