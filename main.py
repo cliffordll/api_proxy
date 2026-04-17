@@ -29,6 +29,10 @@ def main():
     test_parser.add_argument("--route", type=str, help="指定路由测试")
     test_parser.add_argument("--api-key", type=str, help="认证密钥")
 
+    # models 子命令
+    models_parser = subparsers.add_parser("models", help="按路由探测上游可用模型")
+    models_parser.add_argument("--route", type=str, help="仅探测指定路由")
+
     args = parser.parse_args()
 
     # 默认命令为 server
@@ -43,6 +47,9 @@ def main():
         start(args)
     elif args.command == "test":
         from cli.tester import start
+        start(args)
+    elif args.command == "models":
+        from cli.models import start
         start(args)
 
 

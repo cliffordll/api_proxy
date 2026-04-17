@@ -20,7 +20,9 @@
 ### CLI 客户端
 - **交互对话**：多轮对话 + 流式输出 + 上下文记忆
 - **Tab 补全**：斜杠命令、模型名、路由名动态补全
-- **模型探测**：启动时自动探测可用模型，`/models` 命令查看并选择
+- **模型探测**：
+  - `python main.py models` 一键列出所有路由上游可用模型
+  - `chat` 启动时在 welcome 框内展示当前路由上游模型；`/route` 切换自动重探
 - **斜杠命令**：`/model` `/models` `/route` `/stream` `/history` `/clear` `/quit`
 - **Tool Call 展示**：格式化展示工具调用参数和结果
 - **冒烟测试**：`python main.py test` 一键验证服务可用性
@@ -51,6 +53,7 @@ cp config/settings.example.yaml config/settings.yaml
 python main.py server          # 启动代理服务
 python main.py chat            # 交互对话
 python main.py chat "hello"    # 单次对话
+python main.py models          # 列出各路由上游可用模型
 python main.py test            # 冒烟测试
 ```
 
@@ -98,6 +101,15 @@ python main.py chat --base-url http://localhost:8000 --route messages --model qw
 | `--stream` / `--no-stream` | 流式开关 |
 
 参数优先级：命令行 > config/settings.yaml 的 client 段 > 内置默认值。
+
+### 模型探测
+
+```bash
+python main.py models                          # 探测所有路由上游
+python main.py models --route messages         # 仅探测指定路由
+```
+
+读取 `config/settings.yaml` 的 `routes` 段，并发打各上游的 `/v1/models`（兼容 base_url 已含 `/v1` 的情况），按路由分组展示。`chat` 启动时也会自动探测当前路由的上游；若通过 `--base-url` 覆盖则直连该地址探测。
 
 ### 冒烟测试
 
@@ -245,7 +257,7 @@ print(message.content[0].text)
 
 ```
 api_proxy/
-├── main.py                          # 统一入口（server / chat / test）
+├── main.py                          # 统一入口（server / chat / models / test）
 ├── requirements.txt
 ├── config/
 │   ├── settings.yaml                # 配置（server + mappings + routes + client）
@@ -265,12 +277,14 @@ api_proxy/
 │   ├── commands.py                  # 斜杠命令
 │   ├── display.py                   # rich 格式化输出
 │   ├── repl.py                      # 交互循环 + Tab 补全
+│   ├── models.py                    # 上游模型探测（models 子命令 + chat 启动/切路由）
 │   ├── tester.py                    # 冒烟测试
 │   └── tests/                       # CLI 测试
 └── docs/
     ├── architecture.md              # 架构设计
     ├── feature.md                   # 开发计划
     ├── process.md                   # 开发过程记录
+    ├── hotfix/                      # Hotfix 设计与过程
     └── history/                     # 归档历史
 ```
 

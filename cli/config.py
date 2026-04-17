@@ -55,6 +55,7 @@ def merge_args(config: dict, args) -> dict:
             )
             url = url.rstrip("/").rsplit("/v1", 1)[0]
         config["base_url"] = url
+        config["base_url_override"] = True
     if getattr(args, "route", None):
         config["route"] = args.route
     if getattr(args, "model", None):

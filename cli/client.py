@@ -36,20 +36,6 @@ class ChatClient:
         self.route = route
         self.api_key = api_key
 
-    async def list_models(self) -> list[str] | None:
-        """探测可用模型列表，不支持时返回 None。"""
-        url = self.base_url + "/v1/models"
-        try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(url, timeout=5.0)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    models = data.get("data", [])
-                    return [m.get("id", "") for m in models if m.get("id")]
-        except Exception:
-            pass
-        return None
-
     async def send(
         self, messages: list[dict], model: str, stream: bool = False
     ) -> dict:

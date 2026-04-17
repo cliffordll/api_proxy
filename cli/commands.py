@@ -63,14 +63,17 @@ class CommandHandler:
         self.display.print_info(help_text)
 
     async def _cmd_models(self):
-        if not self.client:
-            self.display.print_error("client 未初始化")
-            return
-        models = await self.client.list_models()
+        from cli.models import get_route_base_url, probe_models
+
+        if self.config.get("base_url_override"):
+            upstream = self.config["base_url"]
+        else:
+            upstream = get_route_base_url(self.config["route"])
+        models = await probe_models(upstream) if upstream else None
         if not models:
-            self.display.print_models(None)
+            self.display.print_models(None, upstream=upstream)
             return
-        self.display.print_models(models, numbered=True)
+        self.display.print_models(models, numbered=True, upstream=upstream)
         try:
             choice = input("选择模型 (输入编号，回车跳过): ").strip()
         except (EOFError, KeyboardInterrupt):

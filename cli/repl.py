@@ -12,6 +12,7 @@ from cli.client import ChatClient
 from cli.commands import CommandHandler
 from cli.conversation import Conversation
 from cli.display import Display
+from cli.models import load_routes, probe_models
 
 
 COMMANDS = ["/help", "/model", "/models", "/route", "/stream", "/history", "/clear", "/quit", "/exit"]
@@ -76,21 +77,36 @@ class Repl:
         """构建动态补全器。"""
         return DynamicCompleter(models=self.available_models)
 
+    async def _probe_current_models(self) -> tuple[str | None, list[str] | None]:
+        """探测模型。
+
+        - CLI 显式指定了 --base-url：直接打该地址（用户在绕过 Proxy 直连）
+        - 否则走 settings.yaml 的 routes[当前路由].base_url（经 Proxy 时的真实上游）
+
+        返回 (upstream, models)。models 为 None 表示探测不可用。
+        """
+        if self.config.get("base_url_override"):
+            upstream = self.config["base_url"]
+        else:
+            routes = load_routes()
+            upstream = routes.get(self.config["route"], {}).get("base_url")
+        if not upstream:
+            return None, None
+        return upstream, await probe_models(upstream)
+
     async def run(self):
         """主循环。"""
+        # 启动时静默探测，塞进 welcome 框内
+        upstream, models = await self._probe_current_models()
+        self.available_models = models or []
         self.display.print_welcome(
             self.config["base_url"],
             self.config["route"],
             self.config["model"],
             self.config["stream"],
+            models,
+            upstream,
         )
-
-        # 探测可用模型
-        models = await self.client.list_models()
-        self.display.print_models(models)
-        if models:
-            self.available_models = models
-        print()
 
         session = PromptSession(completer=self._build_completer())
 
@@ -110,7 +126,7 @@ class Repl:
                 print("Bye!")
                 break
             if await self.commands.handle(user_input):
-                # 路由切换后需要更新 client
+                # 路由切换后需要更新 client 并重探上游模型
                 if self.client.route != self.config["route"]:
                     self.client = ChatClient(
                         base_url=self.config["base_url"],
@@ -118,6 +134,9 @@ class Repl:
                         api_key=self.config["api_key"],
                     )
                     self.commands.client = self.client
+                    upstream, models = await self._probe_current_models()
+                    self.available_models = models or []
+                    self.display.print_models(models, upstream=upstream)
                 # 更新补全词表（模型可能变了）
                 session.completer = self._build_completer()
                 continue
