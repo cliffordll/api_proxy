@@ -84,9 +84,7 @@ def load_providers(config_path: str = "config/settings.yaml") -> None:
 
     # 分离各段配置
     server_conf = config.pop("server", None)
-    mappings_conf = config.pop("mappings", None)
-    config.pop("client", None)  # client 段由 CLI 读取，loader 不处理
-    load_settings(server_conf, mappings_conf)
+    load_settings(server_conf)
 
     # 提取 routes 段，兼容新旧格式
     routes_conf = config.pop("routes", None)

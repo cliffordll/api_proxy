@@ -7,8 +7,6 @@ server:
   log_level: debug
   default_max_tokens: 4096
 
-# mappings: 使用内置默认映射，无需配置
-
 routes:
   completions:
     path: /v1/chat/completions

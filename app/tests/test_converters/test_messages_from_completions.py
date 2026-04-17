@@ -12,7 +12,7 @@ class TestRequest:
             "messages": [{"role": "user", "content": [{"type": "text", "text": "hi"}]}],
             "max_tokens": 1024,
         })
-        assert req["model"] == "gpt-4o"
+        assert req["model"] == "claude-sonnet-4-6-20250514"
         assert req["messages"][0]["role"] == "user"
 
     def test_system(self):

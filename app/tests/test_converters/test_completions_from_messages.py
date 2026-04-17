@@ -12,7 +12,7 @@ class TestRequest:
             "model": "gpt-4o",
             "messages": [{"role": "user", "content": "hi"}],
         })
-        assert req["model"] == "claude-sonnet-4-6-20250514"
+        assert req["model"] == "gpt-4o"
         assert req["messages"][0]["role"] == "user"
         assert "max_tokens" in req
 

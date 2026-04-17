@@ -8,7 +8,6 @@ from contextvars import ContextVar
 
 from openai.types.chat import ChatCompletion, ChatCompletionChunk
 
-from app.core.config import map_model
 from app.core.converter import BaseConverter
 
 
@@ -90,7 +89,7 @@ class MessagesFromCompletionsConverter(BaseConverter):
                     messages.append({"role": role, "content": "\n".join(text_parts) if text_parts else ""})
 
         result: dict[str, Any] = {
-            "model": map_model(request["model"], "claude_to_openai"),
+            "model": request["model"],
             "messages": messages,
         }
 

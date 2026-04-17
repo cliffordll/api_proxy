@@ -61,7 +61,7 @@ python main.py test --route completions
 ### 配置优先级
 
 ```
-命令行参数 > config/settings.yaml 的 client 段 > 内置默认值
+命令行参数 > config/settings.yaml 推导值（server 段）> 内置默认值
 ```
 
 ```yaml
@@ -71,35 +71,22 @@ server:
   port: 8000
   ...
 
-mappings:
-  ...
-
 routes:
   completions:
     path: /v1/chat/completions
     base_url: https://api.anthropic.com
     provider: claude
-    interface: messages
-    converter: completions_from_messages
+    from: messages
   responses:
     path: /v1/responses
     base_url: https://api.anthropic.com
     provider: claude
-    interface: messages
-    converter: responses_from_messages
+    from: messages
   messages:
     path: /v1/messages
     base_url: https://api.openai.com/v1
     provider: openai
-    interface: completions
-    converter: messages_from_completions
-
-client:
-  base_url: http://localhost:8000
-  route: messages
-  model: qwen2.5:3b
-  api_key: xxx
-  stream: true
+    from: completions
 ```
 
 ## 3. 模块设计

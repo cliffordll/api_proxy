@@ -14,7 +14,7 @@
 - **自动透传**：不配 `from` 字段时自动透传，无需格式转换
 - **流式响应 (SSE)**：完整支持流式输出
 - **Tool Calling**：完整支持工具调用互转
-- **模型名自动映射**：可通过 YAML 配置，未命中则透传
+- **模型名透传**：直接透传上游，无隐式改名
 - **认证透传**：不存储 API Key，从请求中提取后直接传给上游
 
 ### CLI 客户端
@@ -100,7 +100,7 @@ python main.py chat --base-url http://localhost:8000 --route messages --model qw
 | `--api-key` | 认证密钥 |
 | `--stream` / `--no-stream` | 流式开关 |
 
-参数优先级：命令行 > config/settings.yaml 的 client 段 > 内置默认值。
+参数优先级：命令行 > settings.yaml 推导值（`server` 段）> 内置默认值。
 
 ### 模型探测
 
@@ -156,16 +156,6 @@ server:
   log_level: info
   default_max_tokens: 4096
 
-mappings:
-  openai_to_claude:
-    gpt-4o: claude-sonnet-4-6-20250514
-    gpt-4: claude-opus-4-6-20250514
-    gpt-3.5-turbo: claude-haiku-4-5-20251001
-  claude_to_openai:
-    claude-sonnet-4-6-20250514: gpt-4o
-    claude-opus-4-6-20250514: gpt-4
-    claude-haiku-4-5-20251001: gpt-3.5-turbo
-
 routes:
   completions:
     path: /v1/chat/completions
@@ -184,14 +174,9 @@ routes:
     base_url: https://api.openai.com/v1
     provider: openai
     from: completions
-
-client:
-  base_url: http://localhost:8000
-  route: completions
-  model: claude-sonnet-4-6-20250514
-  api_key: EMPTY
-  stream: true
 ```
+
+CLI 默认值：`base_url` 从 `server.host:port` 推导。
 
 ### 路由配置字段
 
@@ -260,7 +245,7 @@ api_proxy/
 ├── main.py                          # 统一入口（server / chat / models / test）
 ├── requirements.txt
 ├── config/
-│   ├── settings.yaml                # 配置（server + mappings + routes + client）
+│   ├── settings.yaml                # 配置（server + routes）
 │   ├── settings.example.yaml        # 配置模板
 │   └── settings.mockup.yaml         # 调试模式配置
 ├── app/                             # 代理服务

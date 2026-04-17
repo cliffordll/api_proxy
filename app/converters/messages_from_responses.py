@@ -9,7 +9,7 @@ from typing import Any
 
 from openai.types.responses import Response, ResponseStreamEvent
 
-from app.core.config import get_settings, map_model
+from app.core.config import get_settings
 from app.core.converter import BaseConverter
 
 
@@ -70,7 +70,7 @@ class MessagesFromResponsesConverter(BaseConverter):
                         })
 
         result: dict[str, Any] = {
-            "model": map_model(request["model"], "claude_to_openai"),
+            "model": request["model"],
             "input": input_items,
         }
 

@@ -8,7 +8,7 @@ from contextvars import ContextVar
 
 from anthropic.types import Message, RawMessageStreamEvent
 
-from app.core.config import get_settings, map_model
+from app.core.config import get_settings
 from app.core.converter import BaseConverter
 
 
@@ -78,7 +78,7 @@ class CompletionsFromMessagesConverter(BaseConverter):
                 })
 
         result: dict[str, Any] = {
-            "model": map_model(request["model"], "openai_to_claude"),
+            "model": request["model"],
             "messages": claude_messages,
             "max_tokens": request.get("max_tokens") or settings["default_max_tokens"],
         }

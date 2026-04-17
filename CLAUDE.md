@@ -12,12 +12,12 @@
 - Client 层统一 `chat()` 接口，输入 dict，输出 dict（非流式）/ AsyncIterator[str]（流式），SDK 细节封装在内部
 - Proxy 封装 Client + Converter，路由层通过 `proxy.chat()` 一行调用
 - 流式响应使用 SSE 格式
-- 配置统一通过 config/settings.yaml 管理（server + mappings + routes + client）
+- 配置统一通过 config/settings.yaml 管理（server + routes）
 - 路由配置通过 from 字段推导 converter，不配则自动透传
 - 统一入口 main.py（server / chat / test 子命令）
 - CLI 模块（cli/）独立于服务代码（app/），不 import app/
 - 不硬编码 API 密钥
-- 模型映射在 config/settings.yaml 的 mappings 段配置，未命中则透传
+- 模型名全部透传，不在代理层改写
 - 做好封装，保持模块间职责清晰、接口稳定，便于后续扩展和替换
 
 ## 开发流程规范

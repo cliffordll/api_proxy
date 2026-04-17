@@ -10,7 +10,7 @@ from typing import Any
 
 from openai.types.chat import ChatCompletion, ChatCompletionChunk
 
-from app.core.config import get_settings, map_model
+from app.core.config import get_settings
 from app.core.converter import BaseConverter
 
 
