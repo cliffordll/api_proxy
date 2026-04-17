@@ -7,7 +7,7 @@ import json
 
 import httpx
 
-from cli.display import Display
+from cli.core.display import Display
 
 
 class Tester:
@@ -111,7 +111,7 @@ class Tester:
 
 def start(args):
     """CLI test 入口。"""
-    from cli.config import load_client_config, merge_args
+    from cli.core.config import load_client_config, merge_args
 
     config = load_client_config()
     config = merge_args(config, args)

@@ -16,6 +16,22 @@ DEFAULT_CLIENT_CONFIG = {
 }
 
 
+def load_routes(config_path: str = "config/settings.yaml") -> dict:
+    """读 settings.yaml 的 routes 段。"""
+    path = Path(config_path)
+    if not path.exists():
+        return {}
+    with open(path, encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    return data.get("routes") or {}
+
+
+def get_route_base_url(route: str, config_path: str = "config/settings.yaml") -> str | None:
+    """返回 routes[route].base_url，找不到则返回 None。"""
+    conf = load_routes(config_path).get(route)
+    return conf.get("base_url") if conf else None
+
+
 def load_client_config(config_path: str = "config/settings.yaml") -> dict:
     """从 settings.yaml 的 client 段加载配置，合并默认值。
 
@@ -49,7 +65,7 @@ def merge_args(config: dict, args) -> dict:
     if getattr(args, "base_url", None):
         url = args.base_url
         if url.rstrip("/").endswith("/v1"):
-            from cli.display import Display
+            from cli.core.display import Display
             Display().print_error(
                 f"base-url 不需要带 /v1，已自动去除: {url} -> {url.rstrip('/').rsplit('/v1', 1)[0]}"
             )

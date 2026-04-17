@@ -1,35 +1,29 @@
 """ChatClient 单元测试"""
 
-from cli.client import ChatClient, ROUTE_CONFIG
+from cli.core.client import ChatClient
 
 
 class TestBuildRequest:
     def test_completions(self):
         c = ChatClient("http://localhost:8000", "completions", "key123")
-        url, headers, body = c._build_request(
-            [{"role": "user", "content": "hi"}], "gpt-4o", stream=False
-        )
-        assert url == "http://localhost:8000/v1/chat/completions"
-        assert headers["Authorization"] == "Bearer key123"
+        body = c._build_body([{"role": "user", "content": "hi"}], "gpt-4o", stream=False)
+        assert c._path == "/v1/chat/completions"
+        assert c._http.headers["Authorization"] == "Bearer key123"
         assert body["model"] == "gpt-4o"
         assert body["messages"][0]["content"] == "hi"
 
     def test_messages(self):
         c = ChatClient("http://localhost:8000", "messages", "key123")
-        url, headers, body = c._build_request(
-            [{"role": "user", "content": "hi"}], "claude", stream=True
-        )
-        assert url == "http://localhost:8000/v1/messages"
-        assert headers["x-api-key"] == "key123"
+        body = c._build_body([{"role": "user", "content": "hi"}], "claude", stream=True)
+        assert c._path == "/v1/messages"
+        assert c._http.headers["x-api-key"] == "key123"
         assert body["stream"] is True
         assert body["max_tokens"] == 4096
 
     def test_responses(self):
         c = ChatClient("http://localhost:8000", "responses", "key123")
-        url, headers, body = c._build_request(
-            [{"role": "user", "content": "hi"}], "gpt-4o", stream=False
-        )
-        assert url == "http://localhost:8000/v1/responses"
+        body = c._build_body([{"role": "user", "content": "hi"}], "gpt-4o", stream=False)
+        assert c._path == "/v1/responses"
         assert "input" in body
 
 

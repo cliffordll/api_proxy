@@ -1,6 +1,6 @@
 """Conversation 单元测试"""
 
-from cli.conversation import Conversation
+from cli.chat.conversation import Conversation
 
 
 class TestConversation:

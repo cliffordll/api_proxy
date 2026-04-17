@@ -75,26 +75,6 @@ class Display:
         else:
             console.print(f"[dim]{header}: 探测不可用[/dim]")
 
-    def print_route_models(self, results: list[dict], server_url: str | None = None):
-        """按路由分组展示模型列表。results 来自 cli.models.list_all。"""
-        if not results:
-            console.print("[dim]未找到路由配置[/dim]")
-            return
-        sections = []
-        if server_url:
-            sections.append(f"服务: {server_url}")
-        for item in results:
-            head = f"[cyan]{item['route']}[/cyan] [dim]({item['base_url']} / {item['provider']})[/dim]"
-            models = item["models"]
-            if models is None:
-                body = "[dim]  模型探测不可用[/dim]"
-            elif not models:
-                body = "[dim]  (无模型)[/dim]"
-            else:
-                body = "\n".join(f"[dim]  - {m}[/dim]" for m in models)
-            sections.append(f"{head}\n{body}")
-        console.print(Panel("\n\n".join(sections), title="Available Models", border_style="cyan"))
-
     def print_error(self, message: str):
         console.print(f"[red]{message}[/red]")
 

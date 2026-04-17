@@ -5,27 +5,8 @@ from __future__ import annotations
 import json
 from typing import AsyncIterator
 
-import httpx
-
-
-# 路由 → URL 路径 + 认证头
-ROUTE_CONFIG = {
-    "completions": {
-        "path": "/v1/chat/completions",
-        "auth_header": "Authorization",
-        "auth_prefix": "Bearer ",
-    },
-    "messages": {
-        "path": "/v1/messages",
-        "auth_header": "x-api-key",
-        "auth_prefix": "",
-    },
-    "responses": {
-        "path": "/v1/responses",
-        "auth_header": "Authorization",
-        "auth_prefix": "Bearer ",
-    },
-}
+from common.http import HttpClient
+from common.routes import ROUTE_PATHS, auth_headers
 
 
 class ChatClient:
@@ -35,61 +16,34 @@ class ChatClient:
         self.base_url = base_url.rstrip("/")
         self.route = route
         self.api_key = api_key
+        self._path = ROUTE_PATHS[route]
+        self._http = HttpClient(base_url=self.base_url, headers=auth_headers(route, api_key))
 
     async def send(
         self, messages: list[dict], model: str, stream: bool = False
     ) -> dict:
         """发送非流式对话请求，返回解析后的响应。"""
-        url, headers, body = self._build_request(messages, model, stream=False)
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(url, json=body, headers=headers, timeout=120.0)
-            resp.raise_for_status()
-            return resp.json()
+        return await self._http.post_json(self._path, self._build_body(messages, model, stream=False))
 
     async def send_stream(
         self, messages: list[dict], model: str
     ) -> AsyncIterator[str]:
-        """发送流式请求，yield SSE data 行。"""
-        url, headers, body = self._build_request(messages, model, stream=True)
-        async with httpx.AsyncClient() as client:
-            async with client.stream(
-                "POST", url, json=body, headers=headers, timeout=120.0
-            ) as resp:
-                resp.raise_for_status()
-                async for line in resp.aiter_lines():
-                    line = line.strip()
-                    if line.startswith("data: "):
-                        data = line[6:]
-                        if data == "[DONE]":
-                            return
-                        yield data
-                    elif line.startswith("data:"):
-                        data = line[5:].strip()
-                        if data == "[DONE]":
-                            return
-                        yield data
+        """发送流式请求，yield SSE data 字段（过滤 [DONE] 哨兵）。"""
+        async for data in self._http.iter_sse(
+            self._path, self._build_body(messages, model, stream=True), skip_done=True
+        ):
+            yield data
 
-    def _build_request(
-        self, messages: list[dict], model: str, stream: bool
-    ) -> tuple[str, dict, dict]:
-        """根据路由构建 URL / headers / body。"""
-        rc = ROUTE_CONFIG[self.route]
-        url = self.base_url + rc["path"]
-        headers = {
-            "Content-Type": "application/json",
-            rc["auth_header"]: rc["auth_prefix"] + self.api_key,
-        }
-
+    def _build_body(self, messages: list[dict], model: str, stream: bool) -> dict:
+        """根据路由构建请求体。"""
         if self.route == "responses":
             # Responses 格式：input + instructions
-            body = {"model": model, "input": messages, "stream": stream}
-        else:
-            # Completions / Messages 格式
-            body = {"model": model, "messages": messages, "stream": stream}
-            if self.route == "messages":
-                body["max_tokens"] = 4096
-
-        return url, headers, body
+            return {"model": model, "input": messages, "stream": stream}
+        # Completions / Messages 格式
+        body = {"model": model, "messages": messages, "stream": stream}
+        if self.route == "messages":
+            body["max_tokens"] = 4096
+        return body
 
     def parse_response(self, data: dict) -> tuple[str, list[dict] | None]:
         """从响应中提取文本和 tool_calls。

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from cli.display import Display
+from cli.core.display import Display
 
 
 class CommandHandler:
@@ -63,7 +63,8 @@ class CommandHandler:
         self.display.print_info(help_text)
 
     async def _cmd_models(self):
-        from cli.models import get_route_base_url, probe_models
+        from cli.core.config import get_route_base_url
+        from cli.core.probe import probe_models
 
         if self.config.get("base_url_override"):
             upstream = self.config["base_url"]
@@ -98,12 +99,13 @@ class CommandHandler:
         self.display.print_info(f"模型已切换: {name}")
 
     def _cmd_route(self, name: str):
+        from common.routes import ROUTES
+
         if not name:
             self.display.print_info(f"当前路由: {self.config['route']}")
             return
-        valid = ("completions", "messages", "responses")
-        if name not in valid:
-            self.display.print_error(f"无效路由: {name}，可选: {', '.join(valid)}")
+        if name not in ROUTES:
+            self.display.print_error(f"无效路由: {name}，可选: {', '.join(ROUTES)}")
             return
         self.config["route"] = name
         self.display.print_info(f"路由已切换: {name}")

@@ -2,9 +2,9 @@
 
 import pytest
 
-from cli.commands import CommandHandler
-from cli.conversation import Conversation
-from cli.display import Display
+from cli.chat.commands import CommandHandler
+from cli.chat.conversation import Conversation
+from cli.core.display import Display
 
 
 def _make_handler():

@@ -8,15 +8,16 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.document import Document
 
-from cli.client import ChatClient
-from cli.commands import CommandHandler
-from cli.conversation import Conversation
-from cli.display import Display
-from cli.models import load_routes, probe_models
+from cli.chat.commands import CommandHandler
+from cli.chat.conversation import Conversation
+from cli.core.client import ChatClient
+from cli.core.config import load_routes
+from cli.core.display import Display
+from cli.core.probe import probe_models
+from common.routes import ROUTES
 
 
 COMMANDS = ["/help", "/model", "/models", "/route", "/stream", "/history", "/clear", "/quit", "/exit"]
-ROUTES = ["completions", "messages", "responses"]
 STREAM_OPTIONS = ["on", "off"]
 
 
@@ -209,7 +210,7 @@ async def run_single(config: dict, message: str):
 
 def start(args):
     """CLI chat 入口。"""
-    from cli.config import load_client_config, merge_args
+    from cli.core.config import load_client_config, merge_args
 
     config = load_client_config()
     config = merge_args(config, args)
