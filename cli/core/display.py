@@ -154,6 +154,9 @@ class Display:
         else:
             console.print(f"[dim]{header}: 探测不可用[/dim]")
 
+    def print_context(self, route: str, model: str):
+        console.print(f"[dim]路由: {route}  模型: {model}[/dim]")
+
     def print_error(self, message: str):
         console.print(f"[red]{message}[/red]")
 

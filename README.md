@@ -109,6 +109,29 @@ python main.py test --base-url http://remote:8000  # 测远程服务
 python main.py test --route completions            # 测单个路由
 ```
 
+### 验证上游协议兼容性
+
+用 `curl` 直接探测某个上游是否实现标准端点（ollama 近期版本三种都支持）：
+
+```bash
+# /v1/chat/completions（OpenAI Completions）
+curl -sS -X POST http://localhost:11434/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"qwen2.5:3b","messages":[{"role":"user","content":"hi"}],"stream":false}'
+
+# /v1/responses（OpenAI Responses）
+curl -sS -X POST http://localhost:11434/v1/responses \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"qwen2.5:3b","input":[{"role":"user","content":"hi"}],"stream":false}'
+
+# /v1/messages（Anthropic Messages）
+curl -sS -X POST http://localhost:11434/v1/messages \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"qwen2.5:3b","messages":[{"role":"user","content":"hi"}],"max_tokens":100,"stream":false}'
+```
+
+HTTP 200 + 对应协议 schema 的响应 = 兼容。404 或格式错误 = 不支持该协议。
+
 ---
 
 ## API 端点

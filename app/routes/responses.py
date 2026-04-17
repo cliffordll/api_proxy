@@ -33,9 +33,17 @@ async def responses(
             result = await proxy.chat(body, api_key, stream=False)
             return Response(content=result, media_type="application/json")
 
+        # 流式：先预取首帧触发上游 HTTP 调用，提前暴露错误便于正确返回状态码
+        stream_iter = await proxy.chat(body, api_key, stream=True)
+        try:
+            first = await stream_iter.__anext__()
+        except StopAsyncIteration:
+            first = None
+
         async def generate():
-            stream = await proxy.chat(body, api_key, stream=True)
-            async for item in stream:
+            if first is not None:
+                yield first
+            async for item in stream_iter:
                 yield item
 
         return StreamingResponse(generate(), media_type="text/event-stream")

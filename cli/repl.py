@@ -65,6 +65,7 @@ class Repl:
                 continue
 
             self.conversation.add_user(user_input)
+            self.display.print_context(self.config["route"], self.config["model"])
             try:
                 await self._chat(self.config["stream"])
             except Exception as e:
